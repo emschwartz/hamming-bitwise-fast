@@ -24,14 +24,14 @@ These were the results running on 3 different types of machines:
 ### 2023 MacBook Pro M2 Max
 
 ![Benchmark results](results/line-chart-macbook.svg)
-![Benchmark results](results/violin-plot-macbook.svg)
+![Benchmark results](results/violin-chart-macbook.svg)
 
 ### Linode 2 CPU 4GB
 
 ![Benchmark results](results/line-chart-linode.svg)
-![Benchmark results](results/violin-plot-linode.svg)
+![Benchmark results](results/violin-chart-linode.svg)
 
 ### Fly.io 2 CPU 4GB
 
 ![Benchmark results](results/line-chart-fly.svg)
-![Benchmark results](results/violin-plot-fly.svg)
+![Benchmark results](results/violin-chart-fly.svg)
