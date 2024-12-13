@@ -19,10 +19,19 @@ Then open the `target/criterion/report/index.html` file in your browser to view 
 
 ## Results
 
-These were the results running on a 2023 MacBook Pro M2 Max:
+These were the results running on 3 different types of machines:
 
-1. 🥇 [`simsimd`](https://crates.io/crates/simsimd)
-2. 🥈 [the naive implementation!](./src/naive.rs)
-3. 🥉 [`hamming`](https://crates.io/crates/hamming)
+### 2023 MacBook Pro M2 Max
 
-![Benchmark results](line-chart.svg)
+![Benchmark results](results/line-chart-macbook.svg)
+![Benchmark results](results/violin-plot-macbook.svg)
+
+### Linode 2 CPU 4GB
+
+![Benchmark results](results/line-chart-linode.svg)
+![Benchmark results](results/violin-plot-linode.svg)
+
+### Fly.io 2 CPU 4GB
+
+![Benchmark results](results/line-chart-fly.svg)
+![Benchmark results](results/violin-plot-fly.svg)
