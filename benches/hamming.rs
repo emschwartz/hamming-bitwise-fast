@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Bencher, BenchmarkId, Criterion};
-use hamming_benchmark_rs::naive_hamming_distance;
+use hamming_benchmark_rs::{naive_hamming_distance, naive_hamming_distance_iter};
 
 const BIT_SIZES: [usize; 4] = [512, 768, 1024, 2048];
 
@@ -23,6 +23,11 @@ fn bench_hamming(c: &mut Criterion) {
             BenchmarkId::new("naive", size),
             &size,
             distance_bench(naive_hamming_distance),
+        );
+        group.bench_with_input(
+            BenchmarkId::new("naive_iter", size),
+            &size,
+            distance_bench(naive_hamming_distance_iter),
         );
 
         group.bench_with_input(
