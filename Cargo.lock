@@ -249,10 +249,17 @@ dependencies = [
  "criterion",
  "distances",
  "hamming",
+ "hamming_rs",
  "simsimd",
  "stringzilla",
  "triple_accel",
 ]
+
+[[package]]
+name = "hamming_rs"
+version = "0.2.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "958de7a799a3d5d0b85f6c33b2aecedd774878e5d36587ec706e8277b9bb8fd9"
 
 [[package]]
 name = "hashbrown"

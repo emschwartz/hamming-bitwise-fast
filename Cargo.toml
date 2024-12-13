@@ -11,7 +11,10 @@ simsimd = "6.2.1"
 stringzilla = "3.11.1"
 triple_accel = "0.4.0"
 
-[target.'cfg(any(target_arch = "x86", target_arch = "x86_64"))']
+[target.'cfg(target_arch = "x86")'.dependencies]
+hamming_rs = "0.2.22"
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
 hamming_rs = "0.2.22"
 
 [dev-dependencies]
