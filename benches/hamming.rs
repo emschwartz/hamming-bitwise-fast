@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Bencher, BenchmarkId, Criterion};
-use hamming_benchmark_rs::{naive_hamming_distance, naive_hamming_distance_iter};
+use hamming_benchmark_rs::*;
 
 const BIT_SIZES: [usize; 4] = [512, 768, 1024, 2048];
 
@@ -31,11 +31,6 @@ fn bench_hamming(c: &mut Criterion) {
         );
 
         group.bench_with_input(
-            BenchmarkId::new("distances", size),
-            &size,
-            distance_bench(distances::vectors::hamming),
-        );
-        group.bench_with_input(
             BenchmarkId::new("hamming", size),
             &size,
             distance_bench(|x, y| hamming::distance_fast(x, y).unwrap()),
@@ -50,18 +45,6 @@ fn bench_hamming(c: &mut Criterion) {
             BenchmarkId::new("simsimd", size),
             &size,
             distance_bench(|x, y| simsimd::BinarySimilarity::hamming(x, y).unwrap() as u64),
-        );
-        group.bench_with_input(
-            BenchmarkId::new("stringzilla", size),
-            &size,
-            distance_bench(move |x, y| {
-                stringzilla::sz::hamming_distance_bounded(x, y, size) as u64
-            }),
-        );
-        group.bench_with_input(
-            BenchmarkId::new("triple_accel", size),
-            &size,
-            distance_bench(|x, y| triple_accel::hamming::hamming(x, y) as u64),
         );
     }
     group.finish();

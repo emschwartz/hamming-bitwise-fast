@@ -2,12 +2,12 @@
 
 This benchmarks various Hamming distance implementations in Rust:
 
+- [a naive for-loop based implementation](src/naive.rs)
+- [a naive iterator based implementation](src/naive.rs)
 - [`bitarray`](https://crates.io/crates/bitarray) ![bitarray](https://img.shields.io/crates/d/bitarray)
-- [`distances`](https://crates.io/crates/distances) ![distances](https://img.shields.io/crates/d/distances)
 - [`hamming`](https://crates.io/crates/hamming) ![hamming](https://img.shields.io/crates/d/hamming)
+- [`hamming_rs`](https://crates.io/crates/hamming_rs) ![hamming_rs](https://img.shields.io/crates/d/hamming_rs)
 - [`simsimd`](https://crates.io/crates/simsimd) ![simsimd](https://img.shields.io/crates/d/simsimd)
-- [`stringzilla`](https://crates.io/crates/stringzilla) ![stringzilla](https://img.shields.io/crates/d/stringzilla)
-- [`triple_accel`](https://crates.io/crates/triple_accel) ![triple_accel](https://img.shields.io/crates/d/triple_accel)
 
 ## Running the benchmark
 
