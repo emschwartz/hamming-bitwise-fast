@@ -14,6 +14,9 @@ fn all_same_results() {
     // Compare with naive_iter implementation
     assert_eq!(expected, naive_hamming_distance_iter(&a, &b));
 
+    // Compare with auto vectorized implementation
+    assert_eq!(expected, hamming_distance_auto_vectorized(&a, &b));
+
     // Compare with hamming crate
     assert_eq!(expected, hamming::distance_fast(&a, &b).unwrap());
 

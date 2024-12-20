@@ -29,6 +29,11 @@ fn bench_hamming(c: &mut Criterion) {
             &size,
             distance_bench(naive_hamming_distance_iter),
         );
+        group.bench_with_input(
+            BenchmarkId::new("auto vectorized", size),
+            &size,
+            distance_bench(hamming_distance_auto_vectorized),
+        );
 
         group.bench_with_input(
             BenchmarkId::new("hamming", size),

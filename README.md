@@ -4,6 +4,7 @@ This benchmarks various Hamming distance implementations in Rust:
 
 - [a naive for-loop based implementation](src/naive.rs)
 - [a naive iterator based implementation](src/naive.rs)
+- [an auto-vectorized implementation](src/naive.rs)
 - [`bitarray`](https://crates.io/crates/bitarray) ![bitarray](https://img.shields.io/crates/d/bitarray)
 - [`hamming`](https://crates.io/crates/hamming) ![hamming](https://img.shields.io/crates/d/hamming)
 - [`hamming_rs`](https://crates.io/crates/hamming_rs) ![hamming_rs](https://img.shields.io/crates/d/hamming_rs)
