@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Bencher, BenchmarkId, Criterion};
-use hamming_benchmark_rs::*;
+use hamming_bitwise_fast::*;
 
 const BIT_SIZES: [usize; 4] = [512, 768, 1024, 2048];
 
@@ -20,6 +20,11 @@ fn bench_hamming(c: &mut Criterion) {
     let mut group = c.benchmark_group("hamming");
     for size in BIT_SIZES {
         group.bench_with_input(
+            BenchmarkId::new("hamming-bitwise-fast", size),
+            &size,
+            distance_bench(|x, y| hamming_bitwise_fast(x, y) as u64),
+        );
+        group.bench_with_input(
             BenchmarkId::new("naive", size),
             &size,
             distance_bench(naive_hamming_distance),
@@ -28,11 +33,6 @@ fn bench_hamming(c: &mut Criterion) {
             BenchmarkId::new("naive_iter", size),
             &size,
             distance_bench(naive_hamming_distance_iter),
-        );
-        group.bench_with_input(
-            BenchmarkId::new("auto vectorized", size),
-            &size,
-            distance_bench(hamming_distance_auto_vectorized),
         );
 
         group.bench_with_input(

@@ -1,22 +1,25 @@
 [package]
-name = "hamming-benchmark-rs"
-version = "0.1.0"
+name = "hamming-bitwise-fast"
+description = "A fast, zero-dependency implementation of bitwise Hamming Distance using a method amenable to auto-vectorization."
+version = "1.0.0"
 edition = "2021"
-
-[dependencies]
-bitarray = "0.10.0"
-hamming = "0.1.3"
-simsimd = "6.2.1"
-
-[target.'cfg(target_arch = "x86")'.dependencies]
-hamming_rs = "0.2.22"
-
-[target.'cfg(target_arch = "x86_64")'.dependencies]
-hamming_rs = "0.2.22"
+authors = ["Evan Schwartz"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/emschwartz/hamming-bitwise-fast"
+documentation = "https://docs.rs/hamming-bitwise-fast"
 
 [dev-dependencies]
 criterion = { version = "0.4.0", features = ["html_reports"] }
 hex = "0.4.3"
+bitarray = "0.10.0"
+hamming = "0.1.3"
+simsimd = "6.2.1"
+
+[target.'cfg(target_arch = "x86")'.dev-dependencies]
+hamming_rs = "0.2.22"
+
+[target.'cfg(target_arch = "x86_64")'.dev-dependencies]
+hamming_rs = "0.2.22"
 
 [[bench]]
 name = "hamming"

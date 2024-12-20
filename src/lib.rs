@@ -1,22 +1,18 @@
-#[inline]
-pub fn naive_hamming_distance(x: &[u8], y: &[u8]) -> u64 {
-    assert_eq!(x.len(), y.len());
-    let mut distance: u32 = 0;
-    for i in 0..x.len() {
-        distance += (x[i] ^ y[i]).count_ones();
-    }
-    distance as u64
-}
+//! A fast, zero-dependency implementation of bitwise Hamming Distance using
+//! a method amenable to auto-vectorization.
 
+/// Calculate the bitwise Hamming distance between two byte slices.
+///
+/// While this implementation does not explicitly use SIMD, it uses
+/// a technique that is amenable to auto-vectorization. Its performance
+/// is similar to or faster than more complex implementations that use
+/// explicit SIMD instructions for specific architectures.
+///
+/// # Panics
+///
+/// Panics if the two slices are not the same length.
 #[inline]
-pub fn naive_hamming_distance_iter(x: &[u8], y: &[u8]) -> u64 {
-    x.iter()
-        .zip(y)
-        .fold(0, |a, (b, c)| a + (*b ^ *c).count_ones()) as u64
-}
-
-#[inline]
-pub fn hamming_distance_auto_vectorized(x: &[u8], y: &[u8]) -> u64 {
+pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
     assert_eq!(x.len(), y.len());
 
     // Process 8 bytes at a time using u64
@@ -24,6 +20,10 @@ pub fn hamming_distance_auto_vectorized(x: &[u8], y: &[u8]) -> u64 {
         .chunks_exact(8)
         .zip(y.chunks_exact(8))
         .map(|(x_chunk, y_chunk)| {
+            // This is safe because we know the chunks are exactly 8 bytes.
+            // Also, we don't care whether the platform uses little-endian or big-endian
+            // byte order. Since we're only XORing values, we just care that the
+            // endianness is the same for both.
             let x_val = u64::from_ne_bytes(x_chunk.try_into().unwrap());
             let y_val = u64::from_ne_bytes(y_chunk.try_into().unwrap());
             (x_val ^ y_val).count_ones()
@@ -40,7 +40,26 @@ pub fn hamming_distance_auto_vectorized(x: &[u8], y: &[u8]) -> u64 {
             .sum::<u32>();
     }
 
+    distance
+}
+
+#[doc(hidden)]
+#[inline]
+pub fn naive_hamming_distance(x: &[u8], y: &[u8]) -> u64 {
+    assert_eq!(x.len(), y.len());
+    let mut distance: u32 = 0;
+    for i in 0..x.len() {
+        distance += (x[i] ^ y[i]).count_ones();
+    }
     distance as u64
+}
+
+#[doc(hidden)]
+#[inline]
+pub fn naive_hamming_distance_iter(x: &[u8], y: &[u8]) -> u64 {
+    x.iter()
+        .zip(y)
+        .fold(0, |a, (b, c)| a + (*b ^ *c).count_ones()) as u64
 }
 
 #[test]
@@ -56,7 +75,7 @@ fn all_same_results() {
     assert_eq!(expected, naive_hamming_distance_iter(&a, &b));
 
     // Compare with auto vectorized implementation
-    assert_eq!(expected, hamming_distance_auto_vectorized(&a, &b));
+    assert_eq!(expected, hamming_bitwise_fast(&a, &b) as u64);
 
     // Compare with hamming crate
     assert_eq!(expected, hamming::distance_fast(&a, &b).unwrap());

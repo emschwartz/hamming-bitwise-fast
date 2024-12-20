@@ -214,8 +214,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65043da274378d68241eb9a8f8f8aa54e349136f7b8e12f63e3ef44043cc30e1"
 
 [[package]]
-name = "hamming-benchmark-rs"
-version = "0.1.0"
+name = "hamming-bitwise-fast"
+version = "1.0.0"
 dependencies = [
  "bitarray",
  "criterion",

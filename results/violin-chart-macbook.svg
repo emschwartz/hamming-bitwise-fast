@@ -122,22 +122,22 @@
 </g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<path stroke='black'  d='M273.89,156.98 L282.89,156.98  '/>	<g transform="translate(265.50,160.88)" stroke="none" fill="black" font-family="Helvetica" font-size="12.00"  text-anchor="end">
-		<text><tspan font-family="Helvetica" >hamming/auto vectorized/2048</tspan></text>
+		<text><tspan font-family="Helvetica" >hamming/hamming_bitwise_fast/2048</tspan></text>
 	</g>
 </g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<path stroke='black'  d='M273.89,127.56 L282.89,127.56  '/>	<g transform="translate(265.50,131.46)" stroke="none" fill="black" font-family="Helvetica" font-size="12.00"  text-anchor="end">
-		<text><tspan font-family="Helvetica" >hamming/auto vectorized/1024</tspan></text>
+		<text><tspan font-family="Helvetica" >hamming/hamming_bitwise_fast/1024</tspan></text>
 	</g>
 </g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<path stroke='black'  d='M273.89,98.14 L282.89,98.14  '/>	<g transform="translate(265.50,102.04)" stroke="none" fill="black" font-family="Helvetica" font-size="12.00"  text-anchor="end">
-		<text><tspan font-family="Helvetica" >hamming/auto vectorized/768</tspan></text>
+		<text><tspan font-family="Helvetica" >hamming/hamming_bitwise_fast/768</tspan></text>
 	</g>
 </g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<path stroke='black'  d='M273.89,68.72 L282.89,68.72  '/>	<g transform="translate(265.50,72.62)" stroke="none" fill="black" font-family="Helvetica" font-size="12.00"  text-anchor="end">
-		<text><tspan font-family="Helvetica" >hamming/auto vectorized/512</tspan></text>
+		<text><tspan font-family="Helvetica" >hamming/hamming_bitwise_fast/512</tspan></text>
 	</g>
 </g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
