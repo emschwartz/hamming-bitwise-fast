@@ -25,6 +25,11 @@ fn bench_hamming(c: &mut Criterion) {
             distance_bench(|x, y| hamming_bitwise_fast(x, y) as u64),
         );
         group.bench_with_input(
+            BenchmarkId::new("hamming-bitwise-fast-16", size),
+            &size,
+            distance_bench(|x, y| hamming_bitwise_fast_16(x, y) as u64),
+        );
+        group.bench_with_input(
             BenchmarkId::new("naive", size),
             &size,
             distance_bench(naive_hamming_distance),
