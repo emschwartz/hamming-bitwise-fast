@@ -240,6 +240,88 @@ fn bench_u8_vs_u64(c: &mut Criterion) {
 }
 
 // ============================================================================
+// Group 1A3: Assert-Based Slice Optimizations
+// ============================================================================
+
+fn bench_assert_based_slices(c: &mut Criterion) {
+    let mut group = c.benchmark_group("single_pair/assert_based_slices");
+
+    // Test with 1024-bit embeddings (128 bytes = 16 u64s)
+    const N_BYTES: usize = 128;
+    const N_U64S: usize = 16;
+
+    let a_bytes: Vec<u8> = {
+        let mut rng = rand::thread_rng();
+        (0..N_BYTES).map(|_| rng.gen()).collect()
+    };
+    let b_bytes: Vec<u8> = {
+        let mut rng = rand::thread_rng();
+        (0..N_BYTES).map(|_| rng.gen()).collect()
+    };
+
+    // Convert to u64 array for comparison
+    let a_u64: Embedding<N_U64S> = bytes_to_embedding(&a_bytes);
+    let b_u64: Embedding<N_U64S> = bytes_to_embedding(&b_bytes);
+
+    group.throughput(Throughput::Elements(1));
+
+    // Baseline: original slice-based implementation (chunks_exact internally)
+    group.bench_function("baseline_bitwise_fast", |bench| {
+        bench.iter(|| {
+            hamming_bitwise_fast(
+                criterion::black_box(&a_bytes),
+                criterion::black_box(&b_bytes),
+            )
+        })
+    });
+
+    // Assert aligned (multiple of 16) with byte-by-byte loop
+    // Assembly showed this still uses vpopcntd (32-bit) not optimal 64-bit
+    group.bench_function("assert_aligned_byte_loop", |bench| {
+        bench.iter(|| {
+            hamming_slice_assert_aligned(
+                criterion::black_box(&a_bytes),
+                criterion::black_box(&b_bytes),
+            )
+        })
+    });
+
+    // Assert u64 chunks (multiple of 8) with chunks_exact(8)
+    // Assembly showed same code as hamming_bitwise_fast
+    group.bench_function("assert_u64_chunks", |bench| {
+        bench.iter(|| {
+            hamming_slice_assert_u64_chunks(
+                criterion::black_box(&a_bytes),
+                criterion::black_box(&b_bytes),
+            )
+        })
+    });
+
+    // Best: u64 array with iterator (uses ZMM registers)
+    group.bench_function("u64_array_iter", |bench| {
+        bench.iter(|| {
+            hamming_ref_iter(
+                criterion::black_box(&a_u64),
+                criterion::black_box(&b_u64),
+            )
+        })
+    });
+
+    // Best with multiversion
+    #[cfg(feature = "multiversion")]
+    group.bench_function("u64_multiversion", |bench| {
+        bench.iter(|| {
+            hamming_multiversion(
+                criterion::black_box(&a_u64),
+                criterion::black_box(&b_u64),
+            )
+        })
+    });
+
+    group.finish();
+}
+
+// ============================================================================
 // Group 1B: Dispatch Strategy Benchmarks
 // ============================================================================
 
@@ -366,6 +448,7 @@ criterion_group!(
     benches,
     bench_type_and_loop_style,
     bench_u8_vs_u64,
+    bench_assert_based_slices,
     bench_dispatch_strategies,
     bench_external_crates
 );
