@@ -335,28 +335,14 @@ compilation modes.
 EOF
 
 # Generate assembly for different configurations
-declare -A ASM_CONFIGS=(
-    ["default"]=""
-    ["native"]="-C target-cpu=native"
-    ["multiversion_default"]=""
-    ["multiversion_native"]="-C target-cpu=native"
-)
+# Using a function instead of associative arrays for portability
 
-declare -A ASM_FEATURES=(
-    ["default"]=""
-    ["native"]=""
-    ["multiversion_default"]="multiversion"
-    ["multiversion_native"]="multiversion"
-)
+generate_assembly() {
+    local config="$1"
+    local rustflags="$2"
+    local features="$3"
 
-# Clean previous builds to ensure fresh assembly
-cargo clean 2>/dev/null || true
-
-for config in "default" "native"; do
     log "Generating assembly for $config configuration..."
-
-    rustflags="${ASM_CONFIGS[$config]}"
-    features="${ASM_FEATURES[$config]}"
 
     # Build with assembly output
     cmd="cargo rustc --release --lib"
@@ -377,32 +363,16 @@ for config in "default" "native"; do
 
     # Clean for next config
     cargo clean 2>/dev/null || true
-done
+}
 
-# Now generate multiversion assemblies
-for config in "multiversion_default" "multiversion_native"; do
-    log "Generating assembly for $config configuration..."
+# Clean previous builds to ensure fresh assembly
+cargo clean 2>/dev/null || true
 
-    rustflags="${ASM_CONFIGS[$config]}"
-    features="${ASM_FEATURES[$config]}"
-
-    cmd="cargo rustc --release --lib"
-    [ -n "$features" ] && cmd="$cmd --features $features"
-    cmd="$cmd -- --emit=asm -C llvm-args=-x86-asm-syntax=intel"
-
-    if [ -n "$rustflags" ]; then
-        RUSTFLAGS="$rustflags" eval "$cmd" 2>/dev/null || true
-    else
-        eval "$cmd" 2>/dev/null || true
-    fi
-
-    asm_file=$(find target/release/deps -name "hamming_bitwise_fast*.s" -type f 2>/dev/null | head -1)
-    if [ -f "$asm_file" ]; then
-        cp "$asm_file" "$ASM_DIR/${config}.s"
-    fi
-
-    cargo clean 2>/dev/null || true
-done
+# Generate assembly for each configuration
+generate_assembly "default" "" ""
+generate_assembly "native" "-C target-cpu=native" ""
+generate_assembly "multiversion_default" "" "multiversion"
+generate_assembly "multiversion_native" "-C target-cpu=native" "multiversion"
 
 # Add assembly sections to report
 cat >> "$REPORT" << 'EOF'
