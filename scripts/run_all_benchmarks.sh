@@ -334,8 +334,8 @@ compilation modes.
 
 EOF
 
-# Generate assembly for different configurations
-# Using a function instead of associative arrays for portability
+# Generate assembly for different configurations using the asm_check example
+# The example has #[no_mangle] functions that will appear in the assembly output
 
 generate_assembly() {
     local config="$1"
@@ -344,8 +344,9 @@ generate_assembly() {
 
     log "Generating assembly for $config configuration..."
 
-    # Build with assembly output
-    cmd="cargo rustc --release --lib"
+    # Build the asm_check example with assembly output
+    # Using the example ensures functions aren't inlined away
+    cmd="cargo rustc --release --example asm_check"
     [ -n "$features" ] && cmd="$cmd --features $features"
     cmd="$cmd -- --emit=asm -C llvm-args=-x86-asm-syntax=intel"
 
@@ -355,10 +356,13 @@ generate_assembly() {
         eval "$cmd" 2>/dev/null || true
     fi
 
-    # Find and copy assembly
-    asm_file=$(find target/release/deps -name "hamming_bitwise_fast*.s" -type f 2>/dev/null | head -1)
+    # Find and copy assembly - look for asm_check example assembly
+    asm_file=$(find target/release/examples -name "asm_check*.s" -type f 2>/dev/null | head -1)
     if [ -f "$asm_file" ]; then
         cp "$asm_file" "$ASM_DIR/${config}.s"
+        log "  -> Saved to $ASM_DIR/${config}.s ($(wc -l < "$asm_file") lines)"
+    else
+        log "  -> WARNING: Assembly file not found"
     fi
 
     # Clean for next config
@@ -376,9 +380,10 @@ generate_assembly "multiversion_native" "-C target-cpu=native" "multiversion"
 
 # Add assembly sections to report
 cat >> "$REPORT" << 'EOF'
-### hamming_ref_iter (Default Compilation)
+### check_u64_iter (Default Compilation)
 
-This shows what the compiler generates without any target-specific optimizations.
+This shows what the compiler generates for `hamming_ref_iter` without any target-specific optimizations.
+The function is compiled via the `asm_check` example with `#[no_mangle]` to prevent inlining.
 
 <details>
 <summary>Click to expand assembly</summary>
@@ -387,8 +392,8 @@ This shows what the compiler generates without any target-specific optimizations
 EOF
 
 if [ -f "$ASM_DIR/default.s" ]; then
-    # Try to extract hamming_ref_iter function
-    grep -A 100 "hamming_ref_iter" "$ASM_DIR/default.s" 2>/dev/null | head -80 >> "$REPORT" || echo "; Assembly not found" >> "$REPORT"
+    # Extract check_u64_iter function (calls hamming_ref_iter)
+    grep -A 80 "^check_u64_iter:" "$ASM_DIR/default.s" 2>/dev/null | head -60 >> "$REPORT" || echo "; Assembly not found" >> "$REPORT"
 else
     echo "; Assembly file not generated" >> "$REPORT"
 fi
@@ -398,9 +403,10 @@ cat >> "$REPORT" << 'EOF'
 
 </details>
 
-### hamming_ref_iter (Native Target: `-C target-cpu=native`)
+### check_u64_iter (Native Target: `-C target-cpu=native`)
 
 This shows what the compiler generates when it knows the exact CPU features available.
+Note the use of AVX-512 VPOPCNTDQ instructions (vpopcntq) if available.
 
 <details>
 <summary>Click to expand assembly</summary>
@@ -409,7 +415,7 @@ This shows what the compiler generates when it knows the exact CPU features avai
 EOF
 
 if [ -f "$ASM_DIR/native.s" ]; then
-    grep -A 100 "hamming_ref_iter" "$ASM_DIR/native.s" 2>/dev/null | head -80 >> "$REPORT" || echo "; Assembly not found" >> "$REPORT"
+    grep -A 80 "^check_u64_iter:" "$ASM_DIR/native.s" 2>/dev/null | head -60 >> "$REPORT" || echo "; Assembly not found" >> "$REPORT"
 else
     echo "; Assembly file not generated" >> "$REPORT"
 fi
@@ -419,18 +425,18 @@ cat >> "$REPORT" << 'EOF'
 
 </details>
 
-### hamming_multiversion (With Multiversion Feature)
+### check_bitwise_fast (Slice-based Implementation)
 
-This shows the multiversion dispatcher and specialized implementations.
+Assembly for the original `hamming_bitwise_fast` slice-based implementation.
 
 <details>
-<summary>Click to expand assembly</summary>
+<summary>Click to expand assembly (default)</summary>
 
 ```asm
 EOF
 
-if [ -f "$ASM_DIR/multiversion_default.s" ]; then
-    grep -A 150 "hamming_multiversion" "$ASM_DIR/multiversion_default.s" 2>/dev/null | head -120 >> "$REPORT" || echo "; Assembly not found" >> "$REPORT"
+if [ -f "$ASM_DIR/default.s" ]; then
+    grep -A 120 "^check_bitwise_fast:" "$ASM_DIR/default.s" 2>/dev/null | head -100 >> "$REPORT" || echo "; Assembly not found" >> "$REPORT"
 else
     echo "; Assembly file not generated" >> "$REPORT"
 fi
@@ -440,18 +446,35 @@ cat >> "$REPORT" << 'EOF'
 
 </details>
 
-### hamming_batch_into (Batch Operation)
-
-Assembly for the batch operation that amortizes dispatch overhead.
-
 <details>
-<summary>Click to expand assembly</summary>
+<summary>Click to expand assembly (native target)</summary>
 
 ```asm
 EOF
 
-if [ -f "$ASM_DIR/multiversion_default.s" ]; then
-    grep -A 150 "hamming_batch_into" "$ASM_DIR/multiversion_default.s" 2>/dev/null | head -120 >> "$REPORT" || echo "; Assembly not found" >> "$REPORT"
+if [ -f "$ASM_DIR/native.s" ]; then
+    grep -A 120 "^check_bitwise_fast:" "$ASM_DIR/native.s" 2>/dev/null | head -100 >> "$REPORT" || echo "; Assembly not found" >> "$REPORT"
+else
+    echo "; Assembly file not generated" >> "$REPORT"
+fi
+
+cat >> "$REPORT" << 'EOF'
+```
+
+</details>
+
+### check_u8_for (Byte Array Implementation)
+
+Assembly for processing u8 arrays with a for loop.
+
+<details>
+<summary>Click to expand assembly (native target)</summary>
+
+```asm
+EOF
+
+if [ -f "$ASM_DIR/native.s" ]; then
+    grep -A 80 "^check_u8_for:" "$ASM_DIR/native.s" 2>/dev/null | head -60 >> "$REPORT" || echo "; Assembly not found" >> "$REPORT"
 else
     echo "; Assembly file not generated" >> "$REPORT"
 fi
