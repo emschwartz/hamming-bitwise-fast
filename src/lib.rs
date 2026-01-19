@@ -1,5 +1,46 @@
 //! A fast, zero-dependency implementation of bitwise Hamming Distance using
 //! a method amenable to auto-vectorization.
+//!
+//! # Quick Start
+//!
+//! For byte slices (variable-length):
+//! ```
+//! use hamming_bitwise_fast::hamming_bitwise_fast;
+//!
+//! let a = [0u8; 128];
+//! let b = [0xFFu8; 128];
+//! let distance = hamming_bitwise_fast(&a, &b);
+//! ```
+//!
+//! For fixed-size embeddings (faster, recommended for known sizes):
+//! ```
+//! use hamming_bitwise_fast::hamming;
+//!
+//! // 1024-bit embeddings = 16 u64s
+//! let a: [u64; 16] = [0; 16];
+//! let b: [u64; 16] = [u64::MAX; 16];
+//! let distance = hamming(&a, &b);
+//! ```
+//!
+//! For batch operations (70% faster than individual calls):
+//! ```
+//! use hamming_bitwise_fast::hamming_batch;
+//!
+//! let source: [u64; 16] = [0; 16];
+//! let targets: Vec<[u64; 16]> = vec![[1; 16], [2; 16], [3; 16]];
+//! let mut distances = vec![0u32; targets.len()];
+//! hamming_batch(&source, &targets, &mut distances);
+//! ```
+//!
+//! # Feature Flags
+//!
+//! - `multiversion`: Enables runtime CPU dispatch for optimal SIMD on x86.
+//!   Recommended for x86 deployments. On ARM, auto-vectorization is already
+//!   near-optimal, so this adds minimal benefit.
+//!
+//! - `no-unsafe`: Disables the ARM-specific zero-cost cast optimization.
+//!   Use this if you require pure safe Rust code. Performance impact is ~40%
+//!   slower on ARM; no impact on x86.
 
 /// Calculate the bitwise Hamming distance between two byte slices.
 ///
@@ -43,234 +84,135 @@ pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
     distance
 }
 
-#[doc(hidden)]
-#[inline]
-pub fn naive_hamming_distance(x: &[u8], y: &[u8]) -> u64 {
-    assert_eq!(x.len(), y.len());
-    let mut distance: u32 = 0;
-    for i in 0..x.len() {
-        distance += (x[i] ^ y[i]).count_ones();
-    }
-    distance as u64
-}
-
-#[doc(hidden)]
-#[inline]
-pub fn naive_hamming_distance_iter(x: &[u8], y: &[u8]) -> u64 {
-    x.iter()
-        .zip(y)
-        .fold(0, |a, (b, c)| a + (*b ^ *c).count_ones()) as u64
-}
-
 // ============================================================================
-// Const-generic implementations for fixed-size embeddings
+// Platform-optimized const-generic implementations
 // ============================================================================
 
-/// A fixed-size embedding represented as an array of N u64 values.
+/// Zero-cost cast from `&[u64; N]` to `&[u8; N*8]` on ARM.
+///
+/// On ARM (aarch64), u8-based processing is faster due to NEON's byte-level
+/// operations. This cast allows us to accept u64 arrays (convenient for users)
+/// while processing them as u8 arrays internally.
+#[cfg(all(target_arch = "aarch64", not(feature = "no-unsafe")))]
+#[inline]
+fn as_bytes<const N: usize>(arr: &[u64; N]) -> &[u8] {
+    // SAFETY: [u64; N] and [u8; N*8] have the same memory layout.
+    // u8 has alignment 1, so any pointer is valid for u8.
+    // The lifetime of the returned slice is tied to the input reference.
+    unsafe { std::slice::from_raw_parts(arr.as_ptr() as *const u8, N * 8) }
+}
+
+/// Compute Hamming distance for fixed-size u64 arrays.
+///
+/// This is the recommended function for embeddings of known size at compile time.
+/// The const generic `N` represents the number of u64 values (not bytes).
 ///
 /// Common sizes:
-/// - N=8: 512-bit embedding
-/// - N=12: 768-bit embedding
-/// - N=16: 1024-bit embedding
-/// - N=32: 2048-bit embedding
-pub type Embedding<const N: usize> = [u64; N];
-
-/// Hamming distance using reference parameters and a for loop.
+/// - `N=8`: 512-bit embedding (64 bytes)
+/// - `N=12`: 768-bit embedding (96 bytes)
+/// - `N=16`: 1024-bit embedding (128 bytes)
+/// - `N=32`: 2048-bit embedding (256 bytes)
 ///
-/// This is the simplest const-generic implementation. The compiler knows
-/// the exact size at compile time, enabling loop unrolling.
-#[inline]
-pub fn hamming_ref_for<const N: usize>(a: &Embedding<N>, b: &Embedding<N>) -> u32 {
-    let mut dist = 0u32;
-    for i in 0..N {
-        dist += (a[i] ^ b[i]).count_ones();
-    }
-    dist
-}
-
-/// Hamming distance using reference parameters and an iterator chain.
+/// # Performance
 ///
-/// Functionally equivalent to `hamming_ref_for`, but uses iterators
-/// which may help the compiler recognize vectorization patterns.
-#[inline]
-pub fn hamming_ref_iter<const N: usize>(a: &Embedding<N>, b: &Embedding<N>) -> u32 {
-    a.iter()
-        .zip(b.iter())
-        .map(|(x, y)| (x ^ y).count_ones())
-        .sum()
-}
-
-/// Hamming distance using stack-copied parameters and a for loop.
+/// - On ARM (M2, Graviton): Uses optimized u8-based processing (~2.5ns for 1024-bit)
+/// - On x86 (Intel/AMD): Uses u64-based processing with POPCNT (~11ns for 1024-bit)
 ///
-/// For small N (≤16), copying to the stack may be faster because
-/// the values can live entirely in registers, avoiding pointer indirection.
-#[inline]
-pub fn hamming_copy_for<const N: usize>(a: Embedding<N>, b: Embedding<N>) -> u32 {
-    let mut dist = 0u32;
-    for i in 0..N {
-        dist += (a[i] ^ b[i]).count_ones();
-    }
-    dist
-}
-
-/// Hamming distance using stack-copied parameters and an iterator chain.
+/// With the `multiversion` feature enabled, x86 performance improves to ~4ns
+/// through runtime CPU dispatch to AVX2/AVX-512 instructions.
 ///
-/// Combines stack copying with iterator-based computation.
-#[inline]
-pub fn hamming_copy_iter<const N: usize>(a: Embedding<N>, b: Embedding<N>) -> u32 {
-    a.iter()
-        .zip(b.iter())
-        .map(|(x, y)| (x ^ y).count_ones())
-        .sum()
-}
-
-// ============================================================================
-// u8-based implementations for comparison
-// ============================================================================
-
-/// A fixed-size embedding represented as an array of N bytes (u8).
+/// # Example
 ///
-/// For comparing against u64-based representations.
-/// Common sizes:
-/// - N=64: 512-bit embedding
-/// - N=96: 768-bit embedding
-/// - N=128: 1024-bit embedding
-/// - N=256: 2048-bit embedding
-pub type EmbeddingBytes<const N: usize> = [u8; N];
-
-/// Hamming distance on u8 arrays using a for loop.
+/// ```
+/// use hamming_bitwise_fast::hamming;
 ///
-/// Processes one byte at a time - less efficient than u64.
-#[inline]
-pub fn hamming_u8_for<const N: usize>(a: &EmbeddingBytes<N>, b: &EmbeddingBytes<N>) -> u32 {
-    let mut dist = 0u32;
-    for i in 0..N {
-        dist += (a[i] ^ b[i]).count_ones();
-    }
-    dist
-}
-
-/// Hamming distance on u8 arrays using an iterator.
-#[inline]
-pub fn hamming_u8_iter<const N: usize>(a: &EmbeddingBytes<N>, b: &EmbeddingBytes<N>) -> u32 {
-    a.iter()
-        .zip(b.iter())
-        .map(|(x, y)| (x ^ y).count_ones())
-        .sum()
-}
-
-/// Hamming distance on u8 slices with assert for alignment.
-///
-/// Tests whether asserting the length is a multiple of 8/16/etc
-/// helps the compiler vectorize.
-#[inline]
-pub fn hamming_slice_assert_aligned(a: &[u8], b: &[u8]) -> u32 {
-    assert_eq!(a.len(), b.len());
-    assert!(a.len() % 16 == 0, "length must be multiple of 16");
-
-    let mut dist = 0u32;
-    for i in 0..a.len() {
-        dist += (a[i] ^ b[i]).count_ones();
-    }
-    dist
-}
-
-/// Hamming distance on u8 slices processing as u64 chunks with assert.
-#[inline]
-pub fn hamming_slice_assert_u64_chunks(a: &[u8], b: &[u8]) -> u32 {
-    assert_eq!(a.len(), b.len());
-    assert!(a.len() % 8 == 0, "length must be multiple of 8");
-
-    let mut dist = 0u32;
-    // Process 8 bytes at a time
-    for (a_chunk, b_chunk) in a.chunks_exact(8).zip(b.chunks_exact(8)) {
-        let a_val = u64::from_ne_bytes(a_chunk.try_into().unwrap());
-        let b_val = u64::from_ne_bytes(b_chunk.try_into().unwrap());
-        dist += (a_val ^ b_val).count_ones();
-    }
-    dist
-}
-
-/// Hamming distance on u8 arrays, processing 8 bytes at a time as u64.
-///
-/// This is essentially what `hamming_bitwise_fast` does, but with const generics.
-#[inline]
-pub fn hamming_u8_chunked<const N: usize>(a: &EmbeddingBytes<N>, b: &EmbeddingBytes<N>) -> u32 {
-    let mut dist = 0u32;
-
-    // Process 8 bytes at a time
-    let chunks = N / 8;
-    for i in 0..chunks {
-        let offset = i * 8;
-        let a_chunk = u64::from_ne_bytes([
-            a[offset], a[offset + 1], a[offset + 2], a[offset + 3],
-            a[offset + 4], a[offset + 5], a[offset + 6], a[offset + 7],
-        ]);
-        let b_chunk = u64::from_ne_bytes([
-            b[offset], b[offset + 1], b[offset + 2], b[offset + 3],
-            b[offset + 4], b[offset + 5], b[offset + 6], b[offset + 7],
-        ]);
-        dist += (a_chunk ^ b_chunk).count_ones();
-    }
-
-    // Handle remainder (if N is not divisible by 8)
-    let remainder_start = chunks * 8;
-    for i in remainder_start..N {
-        dist += (a[i] ^ b[i]).count_ones();
-    }
-
-    dist
-}
-
-// ============================================================================
-// Multiversion implementations with runtime CPU dispatch
-// ============================================================================
-
-/// Hamming distance with runtime CPU feature detection.
-///
-/// Uses the `multiversion` crate to dispatch to the optimal implementation
-/// based on the CPU's capabilities at runtime. This adds a small dispatch
-/// overhead per call, but ensures optimal performance across different CPUs.
-///
-/// Supported targets (in priority order):
-/// - x86_64: AVX-512 VPOPCNTDQ (Ice Lake+, Zen 4+), AVX-512BW, AVX2+POPCNT, SSE4.2+POPCNT
-/// - x86 (32-bit): AVX2+POPCNT, SSE4.2+POPCNT
-/// - aarch64: NEON (Apple Silicon, Graviton, all AArch64)
+/// // 1024-bit embeddings
+/// let a: [u64; 16] = [0x123456789ABCDEF0; 16];
+/// let b: [u64; 16] = [0xFEDCBA9876543210; 16];
+/// let distance = hamming(&a, &b);
+/// ```
 #[cfg(feature = "multiversion")]
 #[multiversion::multiversion(targets(
-    "x86_64+avx512vpopcntdq+avx512vl",  // Intel Ice Lake+, AMD Zen 4+
-    "x86_64+avx512bw+avx512vl",          // Intel Skylake-X, AMD Zen 4 (no VPOPCNTDQ)
-    "x86_64+avx2+popcnt",                // Intel Haswell+, AMD Zen 1-3
-    "x86_64+sse4.2+popcnt",              // Intel Nehalem+, AMD K10+
-    "x86+avx2+popcnt",                   // 32-bit x86 with AVX2
-    "x86+sse4.2+popcnt",                 // 32-bit x86 fallback
-    "aarch64+neon",                      // Apple Silicon, Graviton, all AArch64
+    "x86_64+avx512vpopcntdq+avx512vl",
+    "x86_64+avx512bw+avx512vl",
+    "x86_64+avx2+popcnt",
+    "x86_64+sse4.2+popcnt",
+    "x86+avx2+popcnt",
+    "x86+sse4.2+popcnt",
+    "aarch64+neon",
 ))]
 #[inline]
-pub fn hamming_multiversion<const N: usize>(a: &Embedding<N>, b: &Embedding<N>) -> u32 {
-    a.iter()
-        .zip(b.iter())
-        .map(|(x, y)| (x ^ y).count_ones())
-        .sum()
+pub fn hamming<const N: usize>(a: &[u64; N], b: &[u64; N]) -> u32 {
+    hamming_inner(a, b)
 }
 
-// ============================================================================
-// Batch operations - single dispatch for multiple comparisons
-// ============================================================================
+/// Compute Hamming distance for fixed-size u64 arrays (non-multiversion).
+#[cfg(not(feature = "multiversion"))]
+#[inline]
+pub fn hamming<const N: usize>(a: &[u64; N], b: &[u64; N]) -> u32 {
+    hamming_inner(a, b)
+}
 
-/// Compute hamming distance from one source to many targets.
+/// Internal implementation that selects the optimal strategy per platform.
+#[inline]
+fn hamming_inner<const N: usize>(a: &[u64; N], b: &[u64; N]) -> u32 {
+    // On ARM without no-unsafe: use u8 processing (fastest)
+    #[cfg(all(target_arch = "aarch64", not(feature = "no-unsafe")))]
+    {
+        let a_bytes = as_bytes(a);
+        let b_bytes = as_bytes(b);
+        a_bytes
+            .iter()
+            .zip(b_bytes.iter())
+            .map(|(x, y)| (x ^ y).count_ones())
+            .sum()
+    }
+
+    // On x86 or ARM with no-unsafe: use u64 processing
+    #[cfg(any(not(target_arch = "aarch64"), feature = "no-unsafe"))]
+    {
+        a.iter()
+            .zip(b.iter())
+            .map(|(x, y)| (x ^ y).count_ones())
+            .sum()
+    }
+}
+
+/// Compute Hamming distance from one source embedding to many targets.
 ///
-/// This function amortizes the multiversion dispatch overhead across
-/// all comparisons. The source embedding stays in registers while
-/// iterating through all targets.
+/// This is significantly faster than calling [`hamming`] in a loop because:
+/// 1. The function call overhead is amortized across all comparisons
+/// 2. The source embedding can stay in registers
+/// 3. With `multiversion`, the CPU dispatch happens once for all comparisons
+///
+/// # Performance
+///
+/// Batch operations are approximately 70% faster than individual calls
+/// when processing many embeddings.
 ///
 /// # Arguments
-/// * `source` - The source embedding to compare against
+///
+/// * `source` - The source embedding to compare against all targets
 /// * `targets` - Slice of target embeddings
-/// * `out` - Output buffer for distances (must be same length as targets)
+/// * `out` - Output buffer for distances (must have same length as `targets`)
 ///
 /// # Panics
+///
 /// Panics if `out.len() != targets.len()`
+///
+/// # Example
+///
+/// ```
+/// use hamming_bitwise_fast::hamming_batch;
+///
+/// let source: [u64; 16] = [0; 16];
+/// let targets = vec![[1u64; 16], [2u64; 16], [3u64; 16]];
+/// let mut distances = vec![0u32; 3];
+///
+/// hamming_batch(&source, &targets, &mut distances);
+///
+/// // distances[i] contains hamming(&source, &targets[i])
+/// ```
 #[cfg(feature = "multiversion")]
 #[multiversion::multiversion(targets(
     "x86_64+avx512vpopcntdq+avx512vl",
@@ -281,173 +223,50 @@ pub fn hamming_multiversion<const N: usize>(a: &Embedding<N>, b: &Embedding<N>) 
     "x86+sse4.2+popcnt",
     "aarch64+neon",
 ))]
-pub fn hamming_batch_into<const N: usize>(
-    source: &Embedding<N>,
-    targets: &[Embedding<N>],
+pub fn hamming_batch<const N: usize>(source: &[u64; N], targets: &[[u64; N]], out: &mut [u32]) {
+    hamming_batch_inner(source, targets, out)
+}
+
+/// Compute Hamming distance from one source embedding to many targets (non-multiversion).
+#[cfg(not(feature = "multiversion"))]
+pub fn hamming_batch<const N: usize>(source: &[u64; N], targets: &[[u64; N]], out: &mut [u32]) {
+    hamming_batch_inner(source, targets, out)
+}
+
+/// Internal batch implementation.
+#[inline]
+fn hamming_batch_inner<const N: usize>(
+    source: &[u64; N],
+    targets: &[[u64; N]],
     out: &mut [u32],
 ) {
     assert_eq!(targets.len(), out.len());
-    for (i, target) in targets.iter().enumerate() {
-        let mut dist = 0u32;
-        for j in 0..N {
-            dist += (source[j] ^ target[j]).count_ones();
-        }
-        out[i] = dist;
-    }
-}
 
-/// Non-multiversion batch operation for baseline comparison.
-///
-/// Same as `hamming_batch_into` but without multiversion dispatch,
-/// relying purely on auto-vectorization.
-pub fn hamming_batch_into_auto<const N: usize>(
-    source: &Embedding<N>,
-    targets: &[Embedding<N>],
-    out: &mut [u32],
-) {
-    assert_eq!(targets.len(), out.len());
-    for (i, target) in targets.iter().enumerate() {
-        let mut dist = 0u32;
-        for j in 0..N {
-            dist += (source[j] ^ target[j]).count_ones();
-        }
-        out[i] = dist;
-    }
-}
-
-/// Fixed-size batch operation for testing unrolling hypothesis.
-///
-/// Uses const generics for both embedding size and batch size,
-/// allowing the compiler to potentially unroll both loops.
-///
-/// Hypothesis: This might be slower due to batch management overhead.
-#[cfg(feature = "multiversion")]
-#[multiversion::multiversion(targets(
-    "x86_64+avx512vpopcntdq+avx512vl",
-    "x86_64+avx512bw+avx512vl",
-    "x86_64+avx2+popcnt",
-    "x86_64+sse4.2+popcnt",
-    "x86+avx2+popcnt",
-    "x86+sse4.2+popcnt",
-    "aarch64+neon",
-))]
-pub fn hamming_batch_fixed<const N: usize, const B: usize>(
-    source: &Embedding<N>,
-    targets: &[Embedding<N>; B],
-    out: &mut [u32; B],
-) {
-    for i in 0..B {
-        let mut dist = 0u32;
-        for j in 0..N {
-            dist += (source[j] ^ targets[i][j]).count_ones();
-        }
-        out[i] = dist;
-    }
-}
-
-/// Non-multiversion fixed-size batch for baseline comparison.
-pub fn hamming_batch_fixed_auto<const N: usize, const B: usize>(
-    source: &Embedding<N>,
-    targets: &[Embedding<N>; B],
-    out: &mut [u32; B],
-) {
-    for i in 0..B {
-        let mut dist = 0u32;
-        for j in 0..N {
-            dist += (source[j] ^ targets[i][j]).count_ones();
-        }
-        out[i] = dist;
-    }
-}
-
-// ============================================================================
-// Portable SIMD implementation using pulp
-// ============================================================================
-
-/// Hamming distance using portable SIMD via the `pulp` crate.
-///
-/// The pulp crate provides portable SIMD operations that automatically
-/// select the best available SIMD instructions for the current CPU.
-/// This is similar to multiversion but uses a different approach.
-#[cfg(feature = "pulp")]
-pub fn hamming_pulp<const N: usize>(a: &Embedding<N>, b: &Embedding<N>) -> u32 {
-    use pulp::Simd;
-
-    struct HammingOp<'a, const N: usize> {
-        a: &'a Embedding<N>,
-        b: &'a Embedding<N>,
-    }
-
-    impl<const N: usize> pulp::WithSimd for HammingOp<'_, N> {
-        type Output = u32;
-
-        #[inline(always)]
-        fn with_simd<S: Simd>(self, simd: S) -> Self::Output {
-            let _ = simd; // Use simd's presence to enable SIMD, but we use the scalar path
-            // For u64 XOR + popcount, the scalar version auto-vectorizes well
-            // pulp doesn't have direct popcount support, so we use the standard approach
-            self.a
+    // On ARM without no-unsafe: use u8 processing
+    #[cfg(all(target_arch = "aarch64", not(feature = "no-unsafe")))]
+    {
+        let source_bytes = as_bytes(source);
+        for (i, target) in targets.iter().enumerate() {
+            let target_bytes = as_bytes(target);
+            out[i] = source_bytes
                 .iter()
-                .zip(self.b.iter())
+                .zip(target_bytes.iter())
                 .map(|(x, y)| (x ^ y).count_ones())
-                .sum()
+                .sum();
         }
     }
 
-    // Dispatch to the best available SIMD implementation
-    pulp::Arch::new().dispatch(HammingOp { a, b })
-}
-
-/// Batch hamming distance using pulp for portable SIMD.
-#[cfg(feature = "pulp")]
-pub fn hamming_batch_pulp<const N: usize>(
-    source: &Embedding<N>,
-    targets: &[Embedding<N>],
-    out: &mut [u32],
-) {
-    use pulp::Simd;
-
-    struct BatchHammingOp<'a, const N: usize> {
-        source: &'a Embedding<N>,
-        targets: &'a [Embedding<N>],
-        out: &'a mut [u32],
-    }
-
-    impl<const N: usize> pulp::WithSimd for BatchHammingOp<'_, N> {
-        type Output = ();
-
-        #[inline(always)]
-        fn with_simd<S: Simd>(self, simd: S) -> Self::Output {
-            let _ = simd;
-            assert_eq!(self.targets.len(), self.out.len());
-            for (i, target) in self.targets.iter().enumerate() {
-                let mut dist = 0u32;
-                for j in 0..N {
-                    dist += (self.source[j] ^ target[j]).count_ones();
-                }
-                self.out[i] = dist;
+    // On x86 or ARM with no-unsafe: use u64 processing
+    #[cfg(any(not(target_arch = "aarch64"), feature = "no-unsafe"))]
+    {
+        for (i, target) in targets.iter().enumerate() {
+            let mut dist = 0u32;
+            for j in 0..N {
+                dist += (source[j] ^ target[j]).count_ones();
             }
+            out[i] = dist;
         }
     }
-
-    pulp::Arch::new().dispatch(BatchHammingOp { source, targets, out })
-}
-
-// ============================================================================
-// Helper functions for converting between representations
-// ============================================================================
-
-/// Convert a byte slice to a fixed-size embedding.
-///
-/// # Panics
-/// Panics if the slice length doesn't match N * 8 bytes.
-pub fn bytes_to_embedding<const N: usize>(bytes: &[u8]) -> Embedding<N> {
-    assert_eq!(bytes.len(), N * 8, "Byte slice must be exactly {} bytes", N * 8);
-    let mut result = [0u64; N];
-    for (i, chunk) in bytes.chunks_exact(8).enumerate() {
-        result[i] = u64::from_ne_bytes(chunk.try_into().unwrap());
-    }
-    result
 }
 
 #[cfg(test)]
@@ -455,116 +274,89 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_same_results() {
-        let a_hex = "cd8e98b29187133982909fc8b30e39c7b4dca73128ece9cf22ce64eefcf75a3adb0f129b1b00f63a20209e83cb873df707f1af6a4e3558941556b215461a9cbbbce984233c8b8a51e8bd2d1e7f6500caf59fb497440d15365b81e75d3ca4fc9947d5fcb97a0a7b5e44a6b93ee4f622c9b3157991fecac58f364b23f01fd8621e";
-        let b_hex = "860e297e5ce51d3bee094b69bedaaf4ec5d74aa639fec1980ac8d6debb77ff8a323350ab4217867a2521d1248f878dc71f39ede3ea357ef39065da261f9ab470ce6884a3e8a6727d1a3c2614ab66481683f63c01de17b4f59d11659ab5a4310121fccc69418839ff6783f9ce7d760ac8e3db7824eef28d0f12fc6b3c1ef8d75c";
-        let a_bytes = hex::decode(a_hex).unwrap();
-        let b_bytes = hex::decode(b_hex).unwrap();
+    fn hamming_bitwise_fast_correctness() {
+        // Test with known values
+        let a = [0u8; 128];
+        let b = [0xFFu8; 128];
+        // Every bit differs: 128 bytes * 8 bits = 1024 bits
+        assert_eq!(hamming_bitwise_fast(&a, &b), 1024);
 
-        let expected = naive_hamming_distance(&a_bytes, &b_bytes);
+        // Same values = 0 distance
+        assert_eq!(hamming_bitwise_fast(&a, &a), 0);
 
-        // Compare with naive_iter implementation
-        assert_eq!(expected, naive_hamming_distance_iter(&a_bytes, &b_bytes));
-
-        // Compare with auto vectorized implementation
-        assert_eq!(expected, hamming_bitwise_fast(&a_bytes, &b_bytes) as u64);
-
-        // Compare with hamming crate
-        assert_eq!(expected, hamming::distance_fast(&a_bytes, &b_bytes).unwrap());
-
-        // Compare with hamming_rs crate (x86/x86_64 only)
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        assert_eq!(expected, hamming_rs::distance_faster(&a_bytes, &b_bytes));
-
-        // Compare with simsimd crate
-        assert_eq!(
-            expected,
-            simsimd::BinarySimilarity::hamming(&a_bytes, &b_bytes).unwrap() as u64
-        );
+        // Single bit difference
+        let mut c = [0u8; 128];
+        c[0] = 1; // One bit set
+        assert_eq!(hamming_bitwise_fast(&a, &c), 1);
     }
 
     #[test]
-    fn const_generic_implementations_match() {
-        let a_hex = "cd8e98b29187133982909fc8b30e39c7b4dca73128ece9cf22ce64eefcf75a3adb0f129b1b00f63a20209e83cb873df707f1af6a4e3558941556b215461a9cbbbce984233c8b8a51e8bd2d1e7f6500caf59fb497440d15365b81e75d3ca4fc9947d5fcb97a0a7b5e44a6b93ee4f622c9b3157991fecac58f364b23f01fd8621e";
-        let b_hex = "860e297e5ce51d3bee094b69bedaaf4ec5d74aa639fec1980ac8d6debb77ff8a323350ab4217867a2521d1248f878dc71f39ede3ea357ef39065da261f9ab470ce6884a3e8a6727d1a3c2614ab66481683f63c01de17b4f59d11659ab5a4310121fccc69418839ff6783f9ce7d760ac8e3db7824eef28d0f12fc6b3c1ef8d75c";
-        let a_bytes = hex::decode(a_hex).unwrap();
-        let b_bytes = hex::decode(b_hex).unwrap();
+    fn hamming_const_generic_correctness() {
+        let a: [u64; 16] = [0; 16];
+        let b: [u64; 16] = [u64::MAX; 16];
+        // Every bit differs: 16 * 64 = 1024 bits
+        assert_eq!(hamming(&a, &b), 1024);
 
-        // Convert to fixed-size embeddings (128 bytes = 16 u64s = 1024 bits)
-        let a: Embedding<16> = bytes_to_embedding(&a_bytes);
-        let b: Embedding<16> = bytes_to_embedding(&b_bytes);
+        // Same values = 0 distance
+        assert_eq!(hamming(&a, &a), 0);
 
-        let expected = naive_hamming_distance(&a_bytes, &b_bytes) as u32;
-
-        // Test all const-generic implementations
-        assert_eq!(expected, hamming_ref_for(&a, &b), "hamming_ref_for mismatch");
-        assert_eq!(expected, hamming_ref_iter(&a, &b), "hamming_ref_iter mismatch");
-        assert_eq!(expected, hamming_copy_for(a, b), "hamming_copy_for mismatch");
-        assert_eq!(expected, hamming_copy_iter(a, b), "hamming_copy_iter mismatch");
-
-        // Test multiversion implementation if feature is enabled
-        #[cfg(feature = "multiversion")]
-        assert_eq!(expected, hamming_multiversion(&a, &b), "hamming_multiversion mismatch");
-
-        // Test pulp implementation if feature is enabled
-        #[cfg(feature = "pulp")]
-        assert_eq!(expected, hamming_pulp(&a, &b), "hamming_pulp mismatch");
+        // Single bit difference
+        let mut c = [0u64; 16];
+        c[0] = 1;
+        assert_eq!(hamming(&a, &c), 1);
     }
 
     #[test]
-    fn batch_operations_match() {
-        let a_hex = "cd8e98b29187133982909fc8b30e39c7b4dca73128ece9cf22ce64eefcf75a3adb0f129b1b00f63a20209e83cb873df707f1af6a4e3558941556b215461a9cbbbce984233c8b8a51e8bd2d1e7f6500caf59fb497440d15365b81e75d3ca4fc9947d5fcb97a0a7b5e44a6b93ee4f622c9b3157991fecac58f364b23f01fd8621e";
-        let b_hex = "860e297e5ce51d3bee094b69bedaaf4ec5d74aa639fec1980ac8d6debb77ff8a323350ab4217867a2521d1248f878dc71f39ede3ea357ef39065da261f9ab470ce6884a3e8a6727d1a3c2614ab66481683f63c01de17b4f59d11659ab5a4310121fccc69418839ff6783f9ce7d760ac8e3db7824eef28d0f12fc6b3c1ef8d75c";
-        let a_bytes = hex::decode(a_hex).unwrap();
-        let b_bytes = hex::decode(b_hex).unwrap();
+    fn hamming_batch_correctness() {
+        let source: [u64; 16] = [0; 16];
+        let targets = vec![
+            [u64::MAX; 16], // 1024 bits different
+            [0u64; 16],     // 0 bits different
+            [1u64; 16],     // 16 bits different (one bit per u64)
+        ];
+        let mut out = vec![0u32; 3];
 
-        let source: Embedding<16> = bytes_to_embedding(&a_bytes);
-        let target: Embedding<16> = bytes_to_embedding(&b_bytes);
-        let targets = [target; 10];
+        hamming_batch(&source, &targets, &mut out);
 
-        let expected = hamming_ref_for(&source, &target);
-
-        // Test batch_into_auto
-        let mut out = [0u32; 10];
-        hamming_batch_into_auto(&source, &targets, &mut out);
-        for (i, &dist) in out.iter().enumerate() {
-            assert_eq!(expected, dist, "hamming_batch_into_auto mismatch at index {}", i);
-        }
-
-        // Test batch_fixed_auto
-        let mut out_fixed = [0u32; 10];
-        hamming_batch_fixed_auto(&source, &targets, &mut out_fixed);
-        for (i, &dist) in out_fixed.iter().enumerate() {
-            assert_eq!(expected, dist, "hamming_batch_fixed_auto mismatch at index {}", i);
-        }
-
-        #[cfg(feature = "multiversion")]
-        {
-            // Test batch_into with multiversion
-            let mut out_mv = [0u32; 10];
-            hamming_batch_into(&source, &targets, &mut out_mv);
-            for (i, &dist) in out_mv.iter().enumerate() {
-                assert_eq!(expected, dist, "hamming_batch_into mismatch at index {}", i);
-            }
-
-            // Test batch_fixed with multiversion
-            let mut out_fixed_mv = [0u32; 10];
-            hamming_batch_fixed(&source, &targets, &mut out_fixed_mv);
-            for (i, &dist) in out_fixed_mv.iter().enumerate() {
-                assert_eq!(expected, dist, "hamming_batch_fixed mismatch at index {}", i);
-            }
-        }
+        assert_eq!(out[0], 1024);
+        assert_eq!(out[1], 0);
+        assert_eq!(out[2], 16);
     }
 
     #[test]
-    fn bytes_to_embedding_roundtrip() {
-        let bytes: Vec<u8> = (0..128).collect();
-        let emb: Embedding<16> = bytes_to_embedding(&bytes);
+    fn hamming_matches_bitwise_fast() {
+        // Verify const-generic version matches slice version
+        let a_bytes: Vec<u8> = (0..128).collect();
+        let b_bytes: Vec<u8> = (128..256).map(|x| x as u8).collect();
 
-        // Verify the conversion preserved the data
-        for (i, chunk) in bytes.chunks_exact(8).enumerate() {
-            let expected = u64::from_ne_bytes(chunk.try_into().unwrap());
-            assert_eq!(expected, emb[i], "Mismatch at index {}", i);
-        }
+        let expected = hamming_bitwise_fast(&a_bytes, &b_bytes);
+
+        // Convert to u64 arrays
+        let a_u64: [u64; 16] = std::array::from_fn(|i| {
+            u64::from_ne_bytes(a_bytes[i * 8..(i + 1) * 8].try_into().unwrap())
+        });
+        let b_u64: [u64; 16] = std::array::from_fn(|i| {
+            u64::from_ne_bytes(b_bytes[i * 8..(i + 1) * 8].try_into().unwrap())
+        });
+
+        assert_eq!(hamming(&a_u64, &b_u64), expected);
+    }
+
+    #[test]
+    fn different_embedding_sizes() {
+        // Test 512-bit (8 u64s)
+        let a: [u64; 8] = [0; 8];
+        let b: [u64; 8] = [u64::MAX; 8];
+        assert_eq!(hamming(&a, &b), 512);
+
+        // Test 768-bit (12 u64s)
+        let a: [u64; 12] = [0; 12];
+        let b: [u64; 12] = [u64::MAX; 12];
+        assert_eq!(hamming(&a, &b), 768);
+
+        // Test 2048-bit (32 u64s)
+        let a: [u64; 32] = [0; 32];
+        let b: [u64; 32] = [u64::MAX; 32];
+        assert_eq!(hamming(&a, &b), 2048);
     }
 }

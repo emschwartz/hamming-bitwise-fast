@@ -11,11 +11,11 @@ documentation = "https://docs.rs/hamming-bitwise-fast"
 [features]
 default = []
 multiversion = ["dep:multiversion"]
-pulp = ["dep:pulp"]
+# Disables ARM-specific zero-cost cast optimization for pure safe Rust
+no-unsafe = []
 
 [dependencies]
 multiversion = { version = "0.7", optional = true }
-pulp = { version = "0.18", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.4.0", features = ["html_reports"] }
@@ -34,7 +34,7 @@ hamming_rs = "0.2.22"
 hamming_rs = "0.2.22"
 
 [[bench]]
-name = "hamming"
+name = "head_to_head"
 harness = false
 
 [[bench]]
@@ -43,10 +43,6 @@ harness = false
 
 [[bench]]
 name = "batch"
-harness = false
-
-[[bench]]
-name = "memory_allocation"
 harness = false
 
 [[bench]]

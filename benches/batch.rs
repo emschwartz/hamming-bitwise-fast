@@ -1,269 +1,121 @@
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use hamming_bitwise_fast::*;
-use rand::Rng;
+mod implementations;
+
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use implementations::*;
 
 // ============================================================================
-// Test data generation
+// Group 1: Batch Operations
+// Key question: How much faster is hamming_batch_into vs looping single calls?
 // ============================================================================
 
-fn random_embedding<const N: usize>() -> Embedding<N> {
-    let mut rng = rand::thread_rng();
-    let mut emb = [0u64; N];
-    for i in 0..N {
-        emb[i] = rng.gen();
-    }
-    emb
-}
-
-fn random_embeddings<const N: usize>(count: usize) -> Vec<Embedding<N>> {
-    (0..count).map(|_| random_embedding()).collect()
-}
-
-// ============================================================================
-// Group 2A: Batch Dispatch Overhead
-// Compares: loop of single calls vs batch function with single dispatch
-// ============================================================================
-
-fn bench_batch_dispatch_overhead(c: &mut Criterion) {
-    let mut group = c.benchmark_group("batch/dispatch_overhead_per_comparison");
+fn bench_batch(c: &mut Criterion) {
+    let mut group = c.benchmark_group("batch/1000");
 
     const N: usize = 16; // 1024-bit embeddings
+    const BATCH_SIZE: usize = 1000;
     let source: Embedding<N> = random_embedding();
+    let targets = random_embeddings::<N>(BATCH_SIZE);
 
-    // Per-comparison throughput
+    // Per-comparison throughput to make numbers directly comparable
     group.throughput(Throughput::Elements(1));
 
-    for batch_size in [100, 500, 1000, 5000] {
-        let targets = random_embeddings::<N>(batch_size);
+    // --- loop_single: Naive approach - loop calling single hamming ---
+    // This is what most users would write first
+    group.bench_function("loop_single", |bench| {
+        let mut idx = 0usize;
+        bench.iter(|| {
+            let result = hamming_ref_iter(
+                criterion::black_box(&source),
+                criterion::black_box(&targets[idx]),
+            );
+            idx = (idx + 1) % BATCH_SIZE;
+            result
+        })
+    });
 
-        // Loop calling single hamming - per comparison
-        group.bench_with_input(
-            BenchmarkId::new("loop_single_ref_iter", batch_size),
-            &(&source, &targets, batch_size),
-            |bench, (source, targets, bs)| {
-                let mut idx = 0usize;
-                bench.iter(|| {
-                    let result = hamming_ref_iter(
-                        criterion::black_box(source),
-                        criterion::black_box(&targets[idx]),
-                    );
-                    idx = (idx + 1) % *bs;
-                    result
-                })
-            },
-        );
-
-        // Loop calling multiversion single - per comparison
-        #[cfg(feature = "multiversion")]
-        group.bench_with_input(
-            BenchmarkId::new("loop_single_multiversion", batch_size),
-            &(&source, &targets, batch_size),
-            |bench, (source, targets, bs)| {
-                let mut idx = 0usize;
-                bench.iter(|| {
-                    let result = hamming_multiversion(
-                        criterion::black_box(source),
-                        criterion::black_box(&targets[idx]),
-                    );
-                    idx = (idx + 1) % *bs;
-                    result
-                })
-            },
-        );
-
-        // Batch function with auto-vectorization - amortized per comparison
-        group.bench_with_input(
-            BenchmarkId::new("batch_auto", batch_size),
-            &(&source, &targets, batch_size),
-            |bench, (source, targets, bs)| {
-                let mut out = vec![0u32; *bs];
-                bench.iter_custom(|iters| {
-                    let iters = iters as usize;
-                    let batches = (iters + *bs - 1) / *bs;
-                    let actual = batches * *bs;
-                    let start = std::time::Instant::now();
-                    for _ in 0..batches {
-                        hamming_batch_into_auto(
-                            criterion::black_box(source),
-                            criterion::black_box(targets),
-                            &mut out,
-                        );
-                        criterion::black_box(&out);
-                    }
-                    start.elapsed().mul_f64(iters as f64 / actual as f64)
-                })
-            },
-        );
-
-        // Batch function with multiversion - amortized per comparison
-        #[cfg(feature = "multiversion")]
-        group.bench_with_input(
-            BenchmarkId::new("batch_multiversion", batch_size),
-            &(&source, &targets, batch_size),
-            |bench, (source, targets, bs)| {
-                let mut out = vec![0u32; *bs];
-                bench.iter_custom(|iters| {
-                    let iters = iters as usize;
-                    let batches = (iters + *bs - 1) / *bs;
-                    let actual = batches * *bs;
-                    let start = std::time::Instant::now();
-                    for _ in 0..batches {
-                        hamming_batch_into(
-                            criterion::black_box(source),
-                            criterion::black_box(targets),
-                            &mut out,
-                        );
-                        criterion::black_box(&out);
-                    }
-                    start.elapsed().mul_f64(iters as f64 / actual as f64)
-                })
-            },
-        );
-    }
+    // --- batch_function: Recommended approach - single dispatch for all ---
+    // Amortizes function call overhead across batch
+    group.bench_function("batch_function", |bench| {
+        let mut out = vec![0u32; BATCH_SIZE];
+        bench.iter_custom(|iters| {
+            let iters = iters as usize;
+            let batches = (iters + BATCH_SIZE - 1) / BATCH_SIZE;
+            let actual = batches * BATCH_SIZE;
+            let start = std::time::Instant::now();
+            for _ in 0..batches {
+                hamming_batch_into_auto(
+                    criterion::black_box(&source),
+                    criterion::black_box(&targets),
+                    &mut out,
+                );
+                criterion::black_box(&out);
+            }
+            start.elapsed().mul_f64(iters as f64 / actual as f64)
+        })
+    });
 
     group.finish();
 }
 
 // ============================================================================
-// Group 2B: Batch Size Exploration
-// Tests hypothesis: fixed-size batches might enable better unrolling
+// Group 2: Allocation Patterns
+// Key question: How much does allocation strategy matter?
 // ============================================================================
 
-fn bench_batch_size_exploration(c: &mut Criterion) {
-    let mut group = c.benchmark_group("batch/size_exploration_per_comparison");
+fn bench_allocation(c: &mut Criterion) {
+    let mut group = c.benchmark_group("batch_allocation/1000");
 
-    const N: usize = 16; // 1024-bit embeddings
+    const N: usize = 16;
+    const BATCH_SIZE: usize = 1000;
     let source: Embedding<N> = random_embedding();
+    let targets = random_embeddings::<N>(BATCH_SIZE);
 
     // Per-comparison throughput
     group.throughput(Throughput::Elements(1));
 
-    // Test different batch sizes to find optimal
-    // L1 cache is ~32KB, 64 embeddings x 128 bytes = 8KB
-    for batch_size in [16, 32, 64, 128, 256, 512] {
-        let targets = random_embeddings::<N>(batch_size);
+    // --- alloc_per_call: Anti-pattern - allocate output buffer each time ---
+    // Shows cost of repeated allocation
+    group.bench_function("alloc_per_call", |bench| {
+        bench.iter_custom(|iters| {
+            let iters = iters as usize;
+            let batches = (iters + BATCH_SIZE - 1) / BATCH_SIZE;
+            let actual = batches * BATCH_SIZE;
+            let start = std::time::Instant::now();
+            for _ in 0..batches {
+                let mut out = vec![0u32; BATCH_SIZE]; // Allocation inside loop
+                hamming_batch_into_auto(
+                    criterion::black_box(&source),
+                    criterion::black_box(&targets),
+                    &mut out,
+                );
+                criterion::black_box(&out);
+            }
+            start.elapsed().mul_f64(iters as f64 / actual as f64)
+        })
+    });
 
-        // Dynamic batch (slice) - amortized per comparison
-        group.bench_with_input(
-            BenchmarkId::new("dynamic_batch", batch_size),
-            &(&source, &targets, batch_size),
-            |bench, (source, targets, bs)| {
-                let mut out = vec![0u32; *bs];
-                bench.iter_custom(|iters| {
-                    let iters = iters as usize;
-                    let batches = (iters + *bs - 1) / *bs;
-                    let actual = batches * *bs;
-                    let start = std::time::Instant::now();
-                    for _ in 0..batches {
-                        hamming_batch_into_auto(
-                            criterion::black_box(source),
-                            criterion::black_box(targets),
-                            &mut out,
-                        );
-                        criterion::black_box(&out);
-                    }
-                    start.elapsed().mul_f64(iters as f64 / actual as f64)
-                })
-            },
-        );
-    }
-
-    // Fixed-size batch comparisons (requires const generics, so we do specific sizes)
-    bench_fixed_batch_64(&mut group, &source);
-    bench_fixed_batch_128(&mut group, &source);
+    // --- preallocated: Best practice - reuse output buffer ---
+    group.bench_function("preallocated", |bench| {
+        let mut out = vec![0u32; BATCH_SIZE]; // Allocation outside loop
+        bench.iter_custom(|iters| {
+            let iters = iters as usize;
+            let batches = (iters + BATCH_SIZE - 1) / BATCH_SIZE;
+            let actual = batches * BATCH_SIZE;
+            let start = std::time::Instant::now();
+            for _ in 0..batches {
+                hamming_batch_into_auto(
+                    criterion::black_box(&source),
+                    criterion::black_box(&targets),
+                    &mut out,
+                );
+                criterion::black_box(&out);
+            }
+            start.elapsed().mul_f64(iters as f64 / actual as f64)
+        })
+    });
 
     group.finish();
 }
 
-fn bench_fixed_batch_64(group: &mut criterion::BenchmarkGroup<criterion::measurement::WallTime>, source: &Embedding<16>) {
-    const BATCH: usize = 64;
-    let targets: [Embedding<16>; BATCH] = std::array::from_fn(|_| random_embedding());
-    let mut out = [0u32; BATCH];
-
-    group.bench_function("fixed_64_auto", |bench| {
-        bench.iter_custom(|iters| {
-            let iters = iters as usize;
-            let batches = (iters + BATCH - 1) / BATCH;
-            let actual = batches * BATCH;
-            let start = std::time::Instant::now();
-            for _ in 0..batches {
-                hamming_batch_fixed_auto(
-                    criterion::black_box(source),
-                    criterion::black_box(&targets),
-                    &mut out,
-                );
-                criterion::black_box(&out);
-            }
-            start.elapsed().mul_f64(iters as f64 / actual as f64)
-        })
-    });
-
-    #[cfg(feature = "multiversion")]
-    group.bench_function("fixed_64_multiversion", |bench| {
-        bench.iter_custom(|iters| {
-            let iters = iters as usize;
-            let batches = (iters + BATCH - 1) / BATCH;
-            let actual = batches * BATCH;
-            let start = std::time::Instant::now();
-            for _ in 0..batches {
-                hamming_batch_fixed(
-                    criterion::black_box(source),
-                    criterion::black_box(&targets),
-                    &mut out,
-                );
-                criterion::black_box(&out);
-            }
-            start.elapsed().mul_f64(iters as f64 / actual as f64)
-        })
-    });
-}
-
-fn bench_fixed_batch_128(group: &mut criterion::BenchmarkGroup<criterion::measurement::WallTime>, source: &Embedding<16>) {
-    const BATCH: usize = 128;
-    let targets: [Embedding<16>; BATCH] = std::array::from_fn(|_| random_embedding());
-    let mut out = [0u32; BATCH];
-
-    group.bench_function("fixed_128_auto", |bench| {
-        bench.iter_custom(|iters| {
-            let iters = iters as usize;
-            let batches = (iters + BATCH - 1) / BATCH;
-            let actual = batches * BATCH;
-            let start = std::time::Instant::now();
-            for _ in 0..batches {
-                hamming_batch_fixed_auto(
-                    criterion::black_box(source),
-                    criterion::black_box(&targets),
-                    &mut out,
-                );
-                criterion::black_box(&out);
-            }
-            start.elapsed().mul_f64(iters as f64 / actual as f64)
-        })
-    });
-
-    #[cfg(feature = "multiversion")]
-    group.bench_function("fixed_128_multiversion", |bench| {
-        bench.iter_custom(|iters| {
-            let iters = iters as usize;
-            let batches = (iters + BATCH - 1) / BATCH;
-            let actual = batches * BATCH;
-            let start = std::time::Instant::now();
-            for _ in 0..batches {
-                hamming_batch_fixed(
-                    criterion::black_box(source),
-                    criterion::black_box(&targets),
-                    &mut out,
-                );
-                criterion::black_box(&out);
-            }
-            start.elapsed().mul_f64(iters as f64 / actual as f64)
-        })
-    });
-}
-
-criterion_group!(
-    benches,
-    bench_batch_dispatch_overhead,
-    bench_batch_size_exploration
-);
+criterion_group!(benches, bench_batch, bench_allocation);
 criterion_main!(benches);
