@@ -140,15 +140,12 @@ pub fn hamming_copy_iter<const N: usize>(a: Embedding<N>, b: Embedding<N>) -> u3
 /// - aarch64: NEON (Apple Silicon, Graviton, all AArch64)
 #[cfg(feature = "multiversion")]
 #[multiversion::multiversion(targets(
-    // x86_64 targets (best to worst)
     "x86_64+avx512vpopcntdq+avx512vl",  // Intel Ice Lake+, AMD Zen 4+
     "x86_64+avx512bw+avx512vl",          // Intel Skylake-X, AMD Zen 4 (no VPOPCNTDQ)
     "x86_64+avx2+popcnt",                // Intel Haswell+, AMD Zen 1-3
     "x86_64+sse4.2+popcnt",              // Intel Nehalem+, AMD K10+
-    // x86 32-bit targets
-    "x86+avx2+popcnt",
-    "x86+sse4.2+popcnt",
-    // ARM targets
+    "x86+avx2+popcnt",                   // 32-bit x86 with AVX2
+    "x86+sse4.2+popcnt",                 // 32-bit x86 fallback
     "aarch64+neon",                      // Apple Silicon, Graviton, all AArch64
 ))]
 #[inline]
