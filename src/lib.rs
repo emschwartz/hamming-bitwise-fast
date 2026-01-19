@@ -133,12 +133,23 @@ pub fn hamming_copy_iter<const N: usize>(a: Embedding<N>, b: Embedding<N>) -> u3
 /// Uses the `multiversion` crate to dispatch to the optimal implementation
 /// based on the CPU's capabilities at runtime. This adds a small dispatch
 /// overhead per call, but ensures optimal performance across different CPUs.
+///
+/// Supported targets (in priority order):
+/// - x86_64: AVX-512 VPOPCNTDQ (Ice Lake+, Zen 4+), AVX-512BW, AVX2+POPCNT, SSE4.2+POPCNT
+/// - x86 (32-bit): AVX2+POPCNT, SSE4.2+POPCNT
+/// - aarch64: NEON (Apple Silicon, Graviton, all AArch64)
 #[cfg(feature = "multiversion")]
 #[multiversion::multiversion(targets(
-    "x86_64+avx512vpopcntdq+avx512vl",
-    "x86_64+avx2+popcnt",
-    "x86_64+popcnt",
-    "aarch64+neon",
+    // x86_64 targets (best to worst)
+    "x86_64+avx512vpopcntdq+avx512vl",  // Intel Ice Lake+, AMD Zen 4+
+    "x86_64+avx512bw+avx512vl",          // Intel Skylake-X, AMD Zen 4 (no VPOPCNTDQ)
+    "x86_64+avx2+popcnt",                // Intel Haswell+, AMD Zen 1-3
+    "x86_64+sse4.2+popcnt",              // Intel Nehalem+, AMD K10+
+    // x86 32-bit targets
+    "x86+avx2+popcnt",
+    "x86+sse4.2+popcnt",
+    // ARM targets
+    "aarch64+neon",                      // Apple Silicon, Graviton, all AArch64
 ))]
 #[inline]
 pub fn hamming_multiversion<const N: usize>(a: &Embedding<N>, b: &Embedding<N>) -> u32 {
@@ -168,8 +179,11 @@ pub fn hamming_multiversion<const N: usize>(a: &Embedding<N>, b: &Embedding<N>) 
 #[cfg(feature = "multiversion")]
 #[multiversion::multiversion(targets(
     "x86_64+avx512vpopcntdq+avx512vl",
+    "x86_64+avx512bw+avx512vl",
     "x86_64+avx2+popcnt",
-    "x86_64+popcnt",
+    "x86_64+sse4.2+popcnt",
+    "x86+avx2+popcnt",
+    "x86+sse4.2+popcnt",
     "aarch64+neon",
 ))]
 pub fn hamming_batch_into<const N: usize>(
@@ -215,8 +229,11 @@ pub fn hamming_batch_into_auto<const N: usize>(
 #[cfg(feature = "multiversion")]
 #[multiversion::multiversion(targets(
     "x86_64+avx512vpopcntdq+avx512vl",
+    "x86_64+avx512bw+avx512vl",
     "x86_64+avx2+popcnt",
-    "x86_64+popcnt",
+    "x86_64+sse4.2+popcnt",
+    "x86+avx2+popcnt",
+    "x86+sse4.2+popcnt",
     "aarch64+neon",
 ))]
 pub fn hamming_batch_fixed<const N: usize, const B: usize>(
