@@ -361,6 +361,79 @@ pub fn hamming_batch_fixed_auto<const N: usize, const B: usize>(
 }
 
 // ============================================================================
+// Portable SIMD implementation using pulp
+// ============================================================================
+
+/// Hamming distance using portable SIMD via the `pulp` crate.
+///
+/// The pulp crate provides portable SIMD operations that automatically
+/// select the best available SIMD instructions for the current CPU.
+/// This is similar to multiversion but uses a different approach.
+#[cfg(feature = "pulp")]
+pub fn hamming_pulp<const N: usize>(a: &Embedding<N>, b: &Embedding<N>) -> u32 {
+    use pulp::Simd;
+
+    struct HammingOp<'a, const N: usize> {
+        a: &'a Embedding<N>,
+        b: &'a Embedding<N>,
+    }
+
+    impl<const N: usize> pulp::WithSimd for HammingOp<'_, N> {
+        type Output = u32;
+
+        #[inline(always)]
+        fn with_simd<S: Simd>(self, simd: S) -> Self::Output {
+            let _ = simd; // Use simd's presence to enable SIMD, but we use the scalar path
+            // For u64 XOR + popcount, the scalar version auto-vectorizes well
+            // pulp doesn't have direct popcount support, so we use the standard approach
+            self.a
+                .iter()
+                .zip(self.b.iter())
+                .map(|(x, y)| (x ^ y).count_ones())
+                .sum()
+        }
+    }
+
+    // Dispatch to the best available SIMD implementation
+    pulp::Arch::new().dispatch(HammingOp { a, b })
+}
+
+/// Batch hamming distance using pulp for portable SIMD.
+#[cfg(feature = "pulp")]
+pub fn hamming_batch_pulp<const N: usize>(
+    source: &Embedding<N>,
+    targets: &[Embedding<N>],
+    out: &mut [u32],
+) {
+    use pulp::Simd;
+
+    struct BatchHammingOp<'a, const N: usize> {
+        source: &'a Embedding<N>,
+        targets: &'a [Embedding<N>],
+        out: &'a mut [u32],
+    }
+
+    impl<const N: usize> pulp::WithSimd for BatchHammingOp<'_, N> {
+        type Output = ();
+
+        #[inline(always)]
+        fn with_simd<S: Simd>(self, simd: S) -> Self::Output {
+            let _ = simd;
+            assert_eq!(self.targets.len(), self.out.len());
+            for (i, target) in self.targets.iter().enumerate() {
+                let mut dist = 0u32;
+                for j in 0..N {
+                    dist += (self.source[j] ^ target[j]).count_ones();
+                }
+                self.out[i] = dist;
+            }
+        }
+    }
+
+    pulp::Arch::new().dispatch(BatchHammingOp { source, targets, out })
+}
+
+// ============================================================================
 // Helper functions for converting between representations
 // ============================================================================
 
@@ -432,6 +505,10 @@ mod tests {
         // Test multiversion implementation if feature is enabled
         #[cfg(feature = "multiversion")]
         assert_eq!(expected, hamming_multiversion(&a, &b), "hamming_multiversion mismatch");
+
+        // Test pulp implementation if feature is enabled
+        #[cfg(feature = "pulp")]
+        assert_eq!(expected, hamming_pulp(&a, &b), "hamming_pulp mismatch");
     }
 
     #[test]

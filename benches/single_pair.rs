@@ -357,6 +357,17 @@ fn bench_dispatch_strategies(c: &mut Criterion) {
         })
     });
 
+    // Pulp portable SIMD
+    #[cfg(feature = "pulp")]
+    group.bench_function("pulp_portable_simd", |bench| {
+        bench.iter(|| {
+            hamming_pulp(
+                criterion::black_box(&a),
+                criterion::black_box(&b),
+            )
+        })
+    });
+
     // Note: "native" target is tested by running the entire benchmark with:
     // RUSTFLAGS="-C target-cpu=native" cargo bench --bench single_pair
     // The same "auto_vectorized" benchmark will then use native instructions.
@@ -394,6 +405,17 @@ fn bench_external_crates(c: &mut Criterion) {
     group.bench_function("hamming_multiversion", |bench| {
         bench.iter(|| {
             hamming_multiversion(
+                criterion::black_box(&a),
+                criterion::black_box(&b),
+            )
+        })
+    });
+
+    // Pulp portable SIMD
+    #[cfg(feature = "pulp")]
+    group.bench_function("hamming_pulp", |bench| {
+        bench.iter(|| {
+            hamming_pulp(
                 criterion::black_box(&a),
                 criterion::black_box(&b),
             )
