@@ -125,6 +125,104 @@ pub fn hamming_copy_iter<const N: usize>(a: Embedding<N>, b: Embedding<N>) -> u3
 }
 
 // ============================================================================
+// u8-based implementations for comparison
+// ============================================================================
+
+/// A fixed-size embedding represented as an array of N bytes (u8).
+///
+/// For comparing against u64-based representations.
+/// Common sizes:
+/// - N=64: 512-bit embedding
+/// - N=96: 768-bit embedding
+/// - N=128: 1024-bit embedding
+/// - N=256: 2048-bit embedding
+pub type EmbeddingBytes<const N: usize> = [u8; N];
+
+/// Hamming distance on u8 arrays using a for loop.
+///
+/// Processes one byte at a time - less efficient than u64.
+#[inline]
+pub fn hamming_u8_for<const N: usize>(a: &EmbeddingBytes<N>, b: &EmbeddingBytes<N>) -> u32 {
+    let mut dist = 0u32;
+    for i in 0..N {
+        dist += (a[i] ^ b[i]).count_ones();
+    }
+    dist
+}
+
+/// Hamming distance on u8 arrays using an iterator.
+#[inline]
+pub fn hamming_u8_iter<const N: usize>(a: &EmbeddingBytes<N>, b: &EmbeddingBytes<N>) -> u32 {
+    a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x ^ y).count_ones())
+        .sum()
+}
+
+/// Hamming distance on u8 slices with assert for alignment.
+///
+/// Tests whether asserting the length is a multiple of 8/16/etc
+/// helps the compiler vectorize.
+#[inline]
+pub fn hamming_slice_assert_aligned(a: &[u8], b: &[u8]) -> u32 {
+    assert_eq!(a.len(), b.len());
+    assert!(a.len() % 16 == 0, "length must be multiple of 16");
+
+    let mut dist = 0u32;
+    for i in 0..a.len() {
+        dist += (a[i] ^ b[i]).count_ones();
+    }
+    dist
+}
+
+/// Hamming distance on u8 slices processing as u64 chunks with assert.
+#[inline]
+pub fn hamming_slice_assert_u64_chunks(a: &[u8], b: &[u8]) -> u32 {
+    assert_eq!(a.len(), b.len());
+    assert!(a.len() % 8 == 0, "length must be multiple of 8");
+
+    let mut dist = 0u32;
+    // Process 8 bytes at a time
+    for (a_chunk, b_chunk) in a.chunks_exact(8).zip(b.chunks_exact(8)) {
+        let a_val = u64::from_ne_bytes(a_chunk.try_into().unwrap());
+        let b_val = u64::from_ne_bytes(b_chunk.try_into().unwrap());
+        dist += (a_val ^ b_val).count_ones();
+    }
+    dist
+}
+
+/// Hamming distance on u8 arrays, processing 8 bytes at a time as u64.
+///
+/// This is essentially what `hamming_bitwise_fast` does, but with const generics.
+#[inline]
+pub fn hamming_u8_chunked<const N: usize>(a: &EmbeddingBytes<N>, b: &EmbeddingBytes<N>) -> u32 {
+    let mut dist = 0u32;
+
+    // Process 8 bytes at a time
+    let chunks = N / 8;
+    for i in 0..chunks {
+        let offset = i * 8;
+        let a_chunk = u64::from_ne_bytes([
+            a[offset], a[offset + 1], a[offset + 2], a[offset + 3],
+            a[offset + 4], a[offset + 5], a[offset + 6], a[offset + 7],
+        ]);
+        let b_chunk = u64::from_ne_bytes([
+            b[offset], b[offset + 1], b[offset + 2], b[offset + 3],
+            b[offset + 4], b[offset + 5], b[offset + 6], b[offset + 7],
+        ]);
+        dist += (a_chunk ^ b_chunk).count_ones();
+    }
+
+    // Handle remainder (if N is not divisible by 8)
+    let remainder_start = chunks * 8;
+    for i in remainder_start..N {
+        dist += (a[i] ^ b[i]).count_ones();
+    }
+
+    dist
+}
+
+// ============================================================================
 // Multiversion implementations with runtime CPU dispatch
 // ============================================================================
 
