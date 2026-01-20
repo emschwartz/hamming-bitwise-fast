@@ -11,7 +11,7 @@
 mod helpers;
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use hamming_bitwise_fast::{hamming, hamming_batch, hamming_bitwise_fast};
+use hamming_bitwise_fast::{hamming_bitwise_array, hamming_bitwise_batch, hamming_bitwise_slice};
 use helpers::*;
 
 // ============================================================================
@@ -28,10 +28,10 @@ fn single_comparison(c: &mut Criterion) {
 
         // Original hamming_bitwise_fast (slice API)
         group.bench_with_input(
-            BenchmarkId::new("hamming_bitwise_fast", size),
+            BenchmarkId::new("hamming_bitwise_slice", size),
             &size,
             |b, _| {
-                b.iter(|| hamming_bitwise_fast(black_box(&a_vec), black_box(&b_vec)));
+                b.iter(|| hamming_bitwise_slice(black_box(&a_vec), black_box(&b_vec)));
             },
         );
 
@@ -66,9 +66,9 @@ fn single_comparison(c: &mut Criterion) {
                     let a: [u8; $bytes] = random_bytes();
                     let b: [u8; $bytes] = random_bytes();
                     group.bench_function(
-                        BenchmarkId::new("hamming_n", concat!(stringify!($bits), "b")),
+                        BenchmarkId::new("hamming_bitwise_array", concat!(stringify!($bits), "b")),
                         |bench| {
-                            bench.iter(|| hamming(black_box(&a), black_box(&b)));
+                            bench.iter(|| hamming_bitwise_array(black_box(&a), black_box(&b)));
                         },
                     );
                 }
@@ -99,10 +99,10 @@ fn batch_comparison(c: &mut Criterion) {
 
                     group.throughput(Throughput::Elements(BATCH as u64));
                     group.bench_function(
-                        BenchmarkId::new("hamming_batch", concat!(stringify!($bits), "b")),
+                        BenchmarkId::new("hamming_bitwise_batch", concat!(stringify!($bits), "b")),
                         |bench| {
                             bench.iter(|| {
-                                hamming_batch(
+                                hamming_bitwise_batch(
                                     black_box(&source),
                                     black_box(&targets),
                                     black_box(&mut out),
@@ -128,11 +128,11 @@ fn batch_comparison(c: &mut Criterion) {
 
                     group.throughput(Throughput::Elements(BATCH as u64));
                     group.bench_function(
-                        BenchmarkId::new("hamming_n_loop", concat!(stringify!($bits), "b")),
+                        BenchmarkId::new("hamming_bitwise_array_loop", concat!(stringify!($bits), "b")),
                         |bench| {
                             bench.iter(|| {
                                 for (i, target) in targets.iter().enumerate() {
-                                    out[i] = hamming(black_box(&source), black_box(target));
+                                    out[i] = hamming_bitwise_array(black_box(&source), black_box(target));
                                 }
                                 black_box(out[0])
                             });
@@ -156,12 +156,12 @@ fn batch_comparison(c: &mut Criterion) {
         {
             let mut out = vec![0u32; BATCH];
             group.bench_with_input(
-                BenchmarkId::new("hamming_bitwise_fast_loop", size),
+                BenchmarkId::new("hamming_bitwise_slice_loop", size),
                 &size,
                 |b, _| {
                     b.iter(|| {
                         for (i, target) in targets.iter().enumerate() {
-                            out[i] = hamming_bitwise_fast(black_box(&source), black_box(target));
+                            out[i] = hamming_bitwise_slice(black_box(&source), black_box(target));
                         }
                         black_box(out[0])
                     });

@@ -5,31 +5,31 @@
 //!
 //! For byte slices (variable-length):
 //! ```
-//! use hamming_bitwise_fast::hamming_bitwise_fast;
+//! use hamming_bitwise_fast::hamming_bitwise_slice;
 //!
 //! let a = [0u8; 128];
 //! let b = [0xFFu8; 128];
-//! let distance = hamming_bitwise_fast(&a, &b);
+//! let distance = hamming_bitwise_slice(&a, &b);
 //! ```
 //!
 //! For fixed-size embeddings (faster, recommended for known sizes):
 //! ```
-//! use hamming_bitwise_fast::hamming;
+//! use hamming_bitwise_fast::hamming_bitwise_array;
 //!
 //! // 1024-bit embeddings = 128 bytes
 //! let a: [u8; 128] = [0; 128];
 //! let b: [u8; 128] = [0xFF; 128];
-//! let distance = hamming(&a, &b);
+//! let distance = hamming_bitwise_array(&a, &b);
 //! ```
 //!
 //! For batch operations:
 //! ```
-//! use hamming_bitwise_fast::hamming_batch;
+//! use hamming_bitwise_fast::hamming_bitwise_batch;
 //!
 //! let source: [u8; 128] = [0; 128];
 //! let targets: Vec<[u8; 128]> = vec![[1; 128], [2; 128], [3; 128]];
 //! let mut distances = vec![0u32; targets.len()];
-//! hamming_batch(&source, &targets, &mut distances);
+//! hamming_bitwise_batch(&source, &targets, &mut distances);
 //! ```
 //!
 //! # Feature Flags
@@ -49,7 +49,7 @@
 ///
 /// Panics if the two slices are not the same length.
 #[inline]
-pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
+pub fn hamming_bitwise_slice(x: &[u8], y: &[u8]) -> u32 {
     assert_eq!(x.len(), y.len());
 
     // Process 8 bytes at a time using u64
@@ -76,6 +76,18 @@ pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
     distance
 }
 
+/// Deprecated: Use [`hamming_bitwise_slice`] instead, or consider
+/// [`hamming_bitwise_array`] for fixed-size arrays (faster) or
+/// [`hamming_bitwise_batch`] for comparing one source against many targets (even faster).
+#[deprecated(
+    since = "1.1.0",
+    note = "renamed to hamming_bitwise_slice; consider hamming_bitwise_array or hamming_bitwise_batch for better performance"
+)]
+#[inline]
+pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
+    hamming_bitwise_slice(x, y)
+}
+
 // ============================================================================
 // Platform-optimized const-generic implementations
 // ============================================================================
@@ -100,12 +112,12 @@ pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
 /// # Example
 ///
 /// ```
-/// use hamming_bitwise_fast::hamming;
+/// use hamming_bitwise_fast::hamming_bitwise_array;
 ///
 /// // 1024-bit embeddings = 128 bytes
 /// let a: [u8; 128] = [0x12; 128];
 /// let b: [u8; 128] = [0xFE; 128];
-/// let distance = hamming(&a, &b);
+/// let distance = hamming_bitwise_array(&a, &b);
 /// ```
 #[cfg(all(
     feature = "multiversion_x86",
@@ -120,7 +132,7 @@ pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
     "x86+sse4.2+popcnt",
 ))]
 #[inline]
-pub fn hamming<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
+pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     hamming_inner(a, b)
 }
 
@@ -130,13 +142,13 @@ pub fn hamming<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     any(target_arch = "x86", target_arch = "x86_64")
 )))]
 #[inline]
-pub fn hamming<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
+pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     hamming_inner(a, b)
 }
 
 /// Compute Hamming distance from one source embedding to many targets.
 ///
-/// This is significantly faster than calling [`hamming`] in a loop because:
+/// This is significantly faster than calling [`hamming_bitwise_array`] in a loop because:
 /// 1. The function call overhead is amortized across all comparisons
 /// 2. The source embedding can stay in registers
 /// 3. With `multiversion_x86`, the CPU dispatch happens once for all comparisons
@@ -154,13 +166,13 @@ pub fn hamming<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
 /// # Example
 ///
 /// ```
-/// use hamming_bitwise_fast::hamming_batch;
+/// use hamming_bitwise_fast::hamming_bitwise_batch;
 ///
 /// let source: [u8; 128] = [0; 128];
 /// let targets = vec![[1u8; 128], [2u8; 128], [3u8; 128]];
 /// let mut distances = vec![0u32; 3];
 ///
-/// hamming_batch(&source, &targets, &mut distances);
+/// hamming_bitwise_batch(&source, &targets, &mut distances);
 /// ```
 #[cfg(all(
     feature = "multiversion_x86",
@@ -174,7 +186,11 @@ pub fn hamming<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     "x86+avx2+popcnt",
     "x86+sse4.2+popcnt",
 ))]
-pub fn hamming_batch<const N: usize>(source: &[u8; N], targets: &[[u8; N]], out: &mut [u32]) {
+pub fn hamming_bitwise_batch<const N: usize>(
+    source: &[u8; N],
+    targets: &[[u8; N]],
+    out: &mut [u32],
+) {
     hamming_batch_inner(source, targets, out)
 }
 
@@ -183,7 +199,11 @@ pub fn hamming_batch<const N: usize>(source: &[u8; N], targets: &[[u8; N]], out:
     feature = "multiversion_x86",
     any(target_arch = "x86", target_arch = "x86_64")
 )))]
-pub fn hamming_batch<const N: usize>(source: &[u8; N], targets: &[[u8; N]], out: &mut [u32]) {
+pub fn hamming_bitwise_batch<const N: usize>(
+    source: &[u8; N],
+    targets: &[[u8; N]],
+    out: &mut [u32],
+) {
     hamming_batch_inner(source, targets, out)
 }
 
@@ -251,31 +271,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hamming_bitwise_fast_correctness() {
+    fn hamming_bitwise_slice_correctness() {
         let a = [0u8; 128];
         let b = [0xFFu8; 128];
-        assert_eq!(hamming_bitwise_fast(&a, &b), 1024);
-        assert_eq!(hamming_bitwise_fast(&a, &a), 0);
+        assert_eq!(hamming_bitwise_slice(&a, &b), 1024);
+        assert_eq!(hamming_bitwise_slice(&a, &a), 0);
 
         let mut c = [0u8; 128];
         c[0] = 1;
-        assert_eq!(hamming_bitwise_fast(&a, &c), 1);
+        assert_eq!(hamming_bitwise_slice(&a, &c), 1);
     }
 
     #[test]
-    fn hamming_const_generic_correctness() {
+    fn hamming_bitwise_array_correctness() {
         let a: [u8; 128] = [0; 128];
         let b: [u8; 128] = [0xFF; 128];
-        assert_eq!(hamming(&a, &b), 1024);
-        assert_eq!(hamming(&a, &a), 0);
+        assert_eq!(hamming_bitwise_array(&a, &b), 1024);
+        assert_eq!(hamming_bitwise_array(&a, &a), 0);
 
         let mut c = [0u8; 128];
         c[0] = 1;
-        assert_eq!(hamming(&a, &c), 1);
+        assert_eq!(hamming_bitwise_array(&a, &c), 1);
     }
 
     #[test]
-    fn hamming_batch_correctness() {
+    fn hamming_bitwise_batch_correctness() {
         let source: [u8; 128] = [0; 128];
         let targets = vec![
             [0xFFu8; 128], // 1024 bits different
@@ -284,7 +304,7 @@ mod tests {
         ];
         let mut out = vec![0u32; 3];
 
-        hamming_batch(&source, &targets, &mut out);
+        hamming_bitwise_batch(&source, &targets, &mut out);
 
         assert_eq!(out[0], 1024);
         assert_eq!(out[1], 0);
@@ -292,11 +312,11 @@ mod tests {
     }
 
     #[test]
-    fn hamming_matches_bitwise_fast() {
+    fn hamming_bitwise_array_matches_slice() {
         let a: [u8; 128] = std::array::from_fn(|i| i as u8);
         let b: [u8; 128] = std::array::from_fn(|i| (i + 128) as u8);
 
-        assert_eq!(hamming(&a, &b), hamming_bitwise_fast(&a, &b));
+        assert_eq!(hamming_bitwise_array(&a, &b), hamming_bitwise_slice(&a, &b));
     }
 
     #[test]
@@ -304,17 +324,17 @@ mod tests {
         // 512-bit (64 bytes)
         let a: [u8; 64] = [0; 64];
         let b: [u8; 64] = [0xFF; 64];
-        assert_eq!(hamming(&a, &b), 512);
+        assert_eq!(hamming_bitwise_array(&a, &b), 512);
 
         // 768-bit (96 bytes)
         let a: [u8; 96] = [0; 96];
         let b: [u8; 96] = [0xFF; 96];
-        assert_eq!(hamming(&a, &b), 768);
+        assert_eq!(hamming_bitwise_array(&a, &b), 768);
 
         // 2048-bit (256 bytes)
         let a: [u8; 256] = [0; 256];
         let b: [u8; 256] = [0xFF; 256];
-        assert_eq!(hamming(&a, &b), 2048);
+        assert_eq!(hamming_bitwise_array(&a, &b), 2048);
     }
 
     #[test]
@@ -322,23 +342,23 @@ mod tests {
         // 7 bytes (not a multiple of 8) - tests remainder handling
         let a: [u8; 7] = [0; 7];
         let b: [u8; 7] = [0xFF; 7];
-        assert_eq!(hamming(&a, &b), 56); // 7 * 8 = 56 bits
+        assert_eq!(hamming_bitwise_array(&a, &b), 56); // 7 * 8 = 56 bits
 
         // 13 bytes (8 + 5 remainder)
         let a: [u8; 13] = [0; 13];
         let b: [u8; 13] = [0xFF; 13];
-        assert_eq!(hamming(&a, &b), 104); // 13 * 8 = 104 bits
+        assert_eq!(hamming_bitwise_array(&a, &b), 104); // 13 * 8 = 104 bits
 
         // 100 bytes (96 + 4 remainder)
         let a: [u8; 100] = [0; 100];
         let b: [u8; 100] = [0xFF; 100];
-        assert_eq!(hamming(&a, &b), 800); // 100 * 8 = 800 bits
+        assert_eq!(hamming_bitwise_array(&a, &b), 800); // 100 * 8 = 800 bits
 
         // Also test batch with odd size
         let source: [u8; 13] = [0; 13];
         let targets = vec![[0xFFu8; 13], [0u8; 13]];
         let mut out = vec![0u32; 2];
-        hamming_batch(&source, &targets, &mut out);
+        hamming_bitwise_batch(&source, &targets, &mut out);
         assert_eq!(out[0], 104);
         assert_eq!(out[1], 0);
     }

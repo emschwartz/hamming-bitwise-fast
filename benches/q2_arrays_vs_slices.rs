@@ -11,7 +11,7 @@
 mod helpers;
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use hamming_bitwise_fast::{hamming, hamming_bitwise_fast};
+use hamming_bitwise_fast::{hamming_bitwise_array, hamming_bitwise_slice};
 use helpers::*;
 
 fn arrays_vs_slices(c: &mut Criterion) {
@@ -71,10 +71,10 @@ fn arrays_vs_slices(c: &mut Criterion) {
 
         // Library's hamming_bitwise_fast (slice API)
         group.bench_with_input(
-            BenchmarkId::new("library_slice_api", size),
+            BenchmarkId::new("hamming_bitwise_slice", size),
             &size,
             |bench, _| {
-                bench.iter(|| hamming_bitwise_fast(black_box(&a), black_box(&b)));
+                bench.iter(|| hamming_bitwise_slice(black_box(&a), black_box(&b)));
             },
         );
     }
@@ -89,9 +89,9 @@ fn arrays_vs_slices(c: &mut Criterion) {
                     let a: [u8; $bytes] = random_bytes();
                     let b: [u8; $bytes] = random_bytes();
                     group.bench_function(
-                        BenchmarkId::new("library_array_api", concat!(stringify!($bits), "b")),
+                        BenchmarkId::new("hamming_bitwise_array", concat!(stringify!($bits), "b")),
                         |bench| {
-                            bench.iter(|| hamming(black_box(&a), black_box(&b)));
+                            bench.iter(|| hamming_bitwise_array(black_box(&a), black_box(&b)));
                         },
                     );
                 }

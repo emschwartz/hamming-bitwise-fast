@@ -22,7 +22,7 @@
 mod helpers;
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use hamming_bitwise_fast::hamming;
+use hamming_bitwise_fast::hamming_bitwise_array;
 use helpers::*;
 
 fn simd_dispatch(c: &mut Criterion) {
@@ -103,9 +103,9 @@ fn simd_dispatch(c: &mut Criterion) {
                     let a: [u8; $bytes] = random_bytes();
                     let b: [u8; $bytes] = random_bytes();
                     group.bench_function(
-                        BenchmarkId::new("library_hamming", concat!(stringify!($bits), "b")),
+                        BenchmarkId::new("hamming_bitwise_array", concat!(stringify!($bits), "b")),
                         |bench| {
-                            bench.iter(|| hamming(black_box(&a), black_box(&b)));
+                            bench.iter(|| hamming_bitwise_array(black_box(&a), black_box(&b)));
                         },
                     );
                 }

@@ -14,7 +14,7 @@ mod helpers;
 use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
 };
-use hamming_bitwise_fast::{hamming, hamming_batch};
+use hamming_bitwise_fast::{hamming_bitwise_array, hamming_bitwise_batch};
 use helpers::*;
 use std::cell::Cell;
 
@@ -35,7 +35,7 @@ fn batching_benchmarks(c: &mut Criterion) {
                         group.bench_function(
                             BenchmarkId::new("single_pair", concat!(stringify!($bits), "b")),
                             |bench| {
-                                bench.iter(|| hamming(black_box(&a), black_box(&b)));
+                                bench.iter(|| hamming_bitwise_array(black_box(&a), black_box(&b)));
                             },
                         );
                     }
@@ -58,7 +58,7 @@ fn batching_benchmarks(c: &mut Criterion) {
                             |bench| {
                                 bench.iter(|| {
                                     let i = idx.get();
-                                    let result = hamming(black_box(&source), black_box(&targets[i]));
+                                    let result = hamming_bitwise_array(black_box(&source), black_box(&targets[i]));
                                     idx.set((i + 1) % $batch_size);
                                     result
                                 });
@@ -94,10 +94,10 @@ fn batching_benchmarks(c: &mut Criterion) {
 
                         // hamming_batch (single call)
                         group.bench_function(
-                            BenchmarkId::new("hamming_batch", concat!(stringify!($bits), "b")),
+                            BenchmarkId::new("hamming_bitwise_batch", concat!(stringify!($bits), "b")),
                             |bench| {
                                 bench.iter(|| {
-                                    hamming_batch(
+                                    hamming_bitwise_batch(
                                         black_box(&source),
                                         black_box(&targets),
                                         black_box(&mut out),
@@ -109,11 +109,11 @@ fn batching_benchmarks(c: &mut Criterion) {
 
                         // Loop of hamming calls
                         group.bench_function(
-                            BenchmarkId::new("hamming_loop", concat!(stringify!($bits), "b")),
+                            BenchmarkId::new("hamming_bitwise_array_loop", concat!(stringify!($bits), "b")),
                             |bench| {
                                 bench.iter(|| {
                                     for (target, dist) in black_box(&targets).iter().zip(out.iter_mut()) {
-                                        *dist = hamming(&source, target);
+                                        *dist = hamming_bitwise_array(&source, target);
                                     }
                                     black_box(out[0])
                                 });
@@ -215,7 +215,7 @@ fn batching_benchmarks(c: &mut Criterion) {
                             |bench| {
                                 bench.iter(|| {
                                     let mut out = vec![0u32; BATCH];
-                                    hamming_batch(
+                                    hamming_bitwise_batch(
                                         black_box(&source),
                                         black_box(&targets),
                                         black_box(&mut out),
@@ -243,7 +243,7 @@ fn batching_benchmarks(c: &mut Criterion) {
                             BenchmarkId::new("preallocated", concat!(stringify!($bits), "b")),
                             |bench| {
                                 bench.iter(|| {
-                                    hamming_batch(
+                                    hamming_bitwise_batch(
                                         black_box(&source),
                                         black_box(&targets),
                                         black_box(&mut out),
