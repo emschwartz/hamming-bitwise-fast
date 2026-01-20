@@ -18,7 +18,7 @@ no-unsafe = []
 multiversion = { version = "0.7", optional = true }
 
 [dev-dependencies]
-criterion = { version = "0.4.0", features = ["html_reports"] }
+divan = "0.1"
 hex = "0.4.3"
 bitarray = "0.10.0"
 hamming = "0.1.3"
@@ -34,17 +34,21 @@ hamming_rs = "0.2.22"
 hamming_rs = "0.2.22"
 
 [[bench]]
-name = "head_to_head"
+name = "q1_data_types"
 harness = false
 
 [[bench]]
-name = "single_pair"
+name = "q2_arrays_vs_slices"
 harness = false
 
 [[bench]]
-name = "batch"
+name = "q3_simd_dispatch"
 harness = false
 
 [[bench]]
-name = "combined"
+name = "q4_batching"
+harness = false
+
+[[bench]]
+name = "q5_vs_competitors"
 harness = false
