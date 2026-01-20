@@ -115,7 +115,6 @@ pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
     "x86_64+sse4.2+popcnt",
     "x86+avx2+popcnt",
     "x86+sse4.2+popcnt",
-    "aarch64+neon",
 ))]
 #[inline]
 pub fn hamming<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
@@ -214,7 +213,6 @@ fn hamming_inner<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     "x86_64+sse4.2+popcnt",
     "x86+avx2+popcnt",
     "x86+sse4.2+popcnt",
-    "aarch64+neon",
 ))]
 pub fn hamming_batch<const N: usize>(source: &[u8; N], targets: &[[u8; N]], out: &mut [u32]) {
     hamming_batch_inner(source, targets, out)
@@ -231,53 +229,8 @@ pub fn hamming_batch<const N: usize>(source: &[u8; N], targets: &[[u8; N]], out:
 fn hamming_batch_inner<const N: usize>(source: &[u8; N], targets: &[[u8; N]], out: &mut [u32]) {
     assert_eq!(targets.len(), out.len());
 
-    // On x86: use chunks_exact(8) to process as u64 (enables AVX-512 VPOPCNTDQ)
-    // The remainder handling is written so the compiler can optimize it away
-    // when N is a compile-time constant that's a multiple of 8.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    {
-        targets.iter().zip(out.iter_mut()).for_each(|(target, dist)| {
-            let chunks_distance: u32 = source
-                .chunks_exact(8)
-                .zip(target.chunks_exact(8))
-                .map(|(a_chunk, b_chunk)| {
-                    let a_val = u64::from_ne_bytes(a_chunk.try_into().unwrap());
-                    let b_val = u64::from_ne_bytes(b_chunk.try_into().unwrap());
-                    (a_val ^ b_val).count_ones()
-                })
-                .sum();
-
-            // Handle remainder bytes by packing into a u64 for a single popcount.
-            // Compiler optimizes this away when N % 8 == 0.
-            let remainder_distance = if N % 8 != 0 {
-                let rem_start = (N / 8) * 8;
-                let source_rem = &source[rem_start..];
-                let target_rem = &target[rem_start..];
-                let mut a_val = 0u64;
-                let mut b_val = 0u64;
-                for (i, (&a_byte, &b_byte)) in source_rem.iter().zip(target_rem).enumerate() {
-                    a_val |= (a_byte as u64) << (i * 8);
-                    b_val |= (b_byte as u64) << (i * 8);
-                }
-                (a_val ^ b_val).count_ones()
-            } else {
-                0
-            };
-
-            *dist = chunks_distance + remainder_distance;
-        });
-    }
-
-    // On ARM and other architectures: byte-by-byte iteration
-    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-    {
-        targets.iter().zip(out.iter_mut()).for_each(|(target, dist)| {
-            *dist = source
-                .iter()
-                .zip(target.iter())
-                .map(|(x, y)| (x ^ y).count_ones())
-                .sum();
-        });
+    for (target, dist) in targets.iter().zip(out.iter_mut()) {
+        *dist = hamming_inner(source, target);
     }
 }
 

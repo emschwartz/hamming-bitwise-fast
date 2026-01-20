@@ -76,22 +76,25 @@ fn batching_benchmarks(c: &mut Criterion) {
     }
 
     // ========================================================================
-    // Batch API throughput
+    // Batch API vs loop: direct comparison
     // ========================================================================
     {
-        let mut group = c.benchmark_group("batch_api");
+        let mut group = c.benchmark_group("batch_vs_loop");
+        const BATCH: usize = 64;
 
-        macro_rules! bench_batch_api {
-            ($batch_size:literal, $name:literal, $($bits:literal => $bytes:literal),+ $(,)?) => {
+        macro_rules! bench_batch_vs_loop {
+            ($($bits:literal => $bytes:literal),+ $(,)?) => {
                 $(
                     {
                         let source: [u8; $bytes] = random_bytes();
-                        let targets: Vec<[u8; $bytes]> = random_bytes_array($batch_size);
-                        let mut out = vec![0u32; $batch_size];
+                        let targets: Vec<[u8; $bytes]> = random_bytes_array(BATCH);
+                        let mut out = vec![0u32; BATCH];
 
-                        group.throughput(Throughput::Elements($batch_size as u64));
+                        group.throughput(Throughput::Elements(BATCH as u64));
+
+                        // hamming_batch (single call)
                         group.bench_function(
-                            BenchmarkId::new($name, concat!(stringify!($bits), "b")),
+                            BenchmarkId::new("hamming_batch", concat!(stringify!($bits), "b")),
                             |bench| {
                                 bench.iter(|| {
                                     hamming_batch(
@@ -103,12 +106,24 @@ fn batching_benchmarks(c: &mut Criterion) {
                                 });
                             },
                         );
+
+                        // Loop of hamming calls
+                        group.bench_function(
+                            BenchmarkId::new("hamming_loop", concat!(stringify!($bits), "b")),
+                            |bench| {
+                                bench.iter(|| {
+                                    for (target, dist) in black_box(&targets).iter().zip(out.iter_mut()) {
+                                        *dist = hamming(&source, target);
+                                    }
+                                    black_box(out[0])
+                                });
+                            },
+                        );
                     }
                 )+
             };
         }
-        bench_batch_api!(64, "hamming_batch_64", 512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
-        bench_batch_api!(256, "hamming_batch_256", 512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+        bench_batch_vs_loop!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
 
         group.finish();
     }
