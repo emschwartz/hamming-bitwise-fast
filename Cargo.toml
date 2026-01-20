@@ -51,3 +51,7 @@ harness = false
 [[bench]]
 name = "q6_slice_multiversion"
 harness = false
+
+[[bench]]
+name = "q7_batch_slice"
+harness = false
