@@ -219,14 +219,24 @@ pub fn hamming_bitwise_array_batch<const N: usize>(
     targets: &[[u8; N]],
     out: &mut [u32],
 ) {
-    hamming_batch_chunks(source, targets, out)
+    hamming_batch_array_chunks(source, targets, out)
 }
 
-/// Compute Hamming distance from one source to many targets (non-multiversion).
-#[cfg(not(all(
-    feature = "multiversion_x86",
+/// Compute Hamming distance from one source to many targets (x86 without multiversion).
+#[cfg(all(
+    not(feature = "multiversion_x86"),
     any(target_arch = "x86", target_arch = "x86_64")
-)))]
+))]
+pub fn hamming_bitwise_array_batch<const N: usize>(
+    source: &[u8; N],
+    targets: &[[u8; N]],
+    out: &mut [u32],
+) {
+    hamming_batch_array_chunks(source, targets, out)
+}
+
+/// Compute Hamming distance from one source to many targets (non-x86).
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
 pub fn hamming_bitwise_array_batch<const N: usize>(
     source: &[u8; N],
     targets: &[[u8; N]],
@@ -396,7 +406,11 @@ fn hamming_array_chunks<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
 /// Batch implementation using u64 chunks (x86 only).
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline]
-fn hamming_batch_chunks<const N: usize>(source: &[u8; N], targets: &[[u8; N]], out: &mut [u32]) {
+fn hamming_batch_array_chunks<const N: usize>(
+    source: &[u8; N],
+    targets: &[[u8; N]],
+    out: &mut [u32],
+) {
     assert_eq!(targets.len(), out.len());
 
     for (target, dist) in targets.iter().zip(out.iter_mut()) {
