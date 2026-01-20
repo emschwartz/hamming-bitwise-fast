@@ -11,12 +11,43 @@ was comparable, if not faster, than other implementations, I decided to publish 
 
 ## Usage
 
+For variable-length slices:
 ```rust
-use hamming_bitwise_fast::hamming_bitwise_fast;
+use hamming_bitwise_fast::hamming_bitwise_slice;
 
-assert_eq!(hamming_bitwise_fast(&[0xFF; 1024], &[0xFF; 1024]), 0);
-assert_eq!(hamming_bitwise_fast(&[0xFF; 1024], &[0x00; 1024]), 1024);
+assert_eq!(hamming_bitwise_slice(&[0xFF; 128], &[0xFF; 128]), 0);
+assert_eq!(hamming_bitwise_slice(&[0xFF; 128], &[0x00; 128]), 1024);
 ```
+
+For fixed-size arrays (10-100% faster for sizes under 2048 bits / 256 bytes):
+```rust
+use hamming_bitwise_fast::hamming_bitwise_array;
+
+let a: [u8; 128] = [0xFF; 128];  // 1024-bit embedding
+let b: [u8; 128] = [0x00; 128];
+assert_eq!(hamming_bitwise_array(&a, &b), 1024);
+```
+
+For batch comparisons (one source vs many targets):
+```rust
+use hamming_bitwise_fast::hamming_bitwise_batch;
+
+let source: [u8; 128] = [0; 128];
+let targets = vec![[0xFF; 128], [0; 128]];
+let mut distances = vec![0u32; 2];
+hamming_bitwise_batch(&source, &targets, &mut distances);
+assert_eq!(distances, vec![1024, 0]);
+```
+
+## Performance
+
+| Function | Best for | Why |
+|----------|----------|-----|
+| `hamming_bitwise_array` | Fixed-size embeddings < 256 bytes | Compile-time size enables loop unrolling |
+| `hamming_bitwise_slice` | Variable-length or large (≥256 byte) data | Simpler API; performance matches array at large sizes |
+| `hamming_bitwise_batch` | One-to-many comparisons | Amortizes function call overhead |
+
+On x86, enable the `multiversion_x86` feature for runtime CPU dispatch to AVX-512/AVX2.
 
 ## Benchmarks
 

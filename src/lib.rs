@@ -12,7 +12,7 @@
 //! let distance = hamming_bitwise_slice(&a, &b);
 //! ```
 //!
-//! For fixed-size embeddings (faster, recommended for known sizes):
+//! For fixed-size embeddings (10-100% faster for sizes under 2048 bits):
 //! ```
 //! use hamming_bitwise_fast::hamming_bitwise_array;
 //!
@@ -49,12 +49,15 @@
 ///
 /// # Performance
 ///
-/// - On x86 with `multiversion_x86`: Uses AVX-512 VPOPCNTDQ when available (~3ns for 1024-bit)
-/// - On ARM: Uses NEON-friendly auto-vectorization (~4-5ns for 1024-bit)
-/// - On x86 without `multiversion_x86`: Uses auto-vectorized u64 chunked processing
+/// - On x86 with `multiversion_x86`: Uses AVX-512 VPOPCNTDQ when available (~3-5ns for 1024-bit)
+/// - On ARM: Uses NEON-friendly auto-vectorization (~3ns for 1024-bit)
+/// - On x86 without `multiversion_x86`: Uses auto-vectorized u64 chunked processing (~10ns for 1024-bit)
 ///
-/// For known compile-time sizes, consider [`hamming_bitwise_array`] which can be
-/// ~2x faster on ARM due to full loop unrolling.
+/// For known compile-time sizes, consider [`hamming_bitwise_array`] which is faster
+/// for embeddings under 2048 bits (256 bytes):
+/// - **ARM**: 10-100% faster (greatest benefit at smaller sizes)
+/// - **x86**: 10-30% faster for sizes under 2048 bits
+/// - **2048+ bits**: Performance is essentially identical
 ///
 /// # Panics
 ///
@@ -99,7 +102,10 @@ pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
 
 /// Compute Hamming distance for fixed-size byte arrays.
 ///
-/// This is the recommended function for embeddings of known size at compile time.
+/// This is the recommended function for embeddings of known size at compile time,
+/// especially for sizes under 2048 bits (256 bytes) where it provides measurable
+/// performance benefits over [`hamming_bitwise_slice`].
+///
 /// The const generic `N` represents the number of bytes.
 ///
 /// Common sizes:
@@ -110,9 +116,16 @@ pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
 ///
 /// # Performance
 ///
-/// - On ARM (M2, Graviton): Uses NEON byte-level operations (~2ns for 1024-bit)
-/// - On x86 with `multiversion_x86`: Uses AVX-512 VPOPCNTDQ when available (~1-2ns)
-/// - On x86 without features: Uses chunked u64 processing (~8ns for 1024-bit)
+/// Compile-time size knowledge enables better loop unrolling and eliminates bounds checking.
+///
+/// **vs slice (when to prefer arrays):**
+/// - **Under 2048 bits**: 10-100% faster depending on platform and size
+/// - **2048+ bits**: Similar performance; use whichever is more convenient
+///
+/// **Absolute timings (1024-bit / 128 bytes):**
+/// - ARM (Apple M2, Graviton): ~2.4ns
+/// - x86 with `multiversion_x86` (AVX-512): ~3.3ns
+/// - x86 without features: ~8.9ns
 ///
 /// # Example
 ///
@@ -227,11 +240,11 @@ pub fn hamming_bitwise_batch<const N: usize>(
 }
 
 /// Deprecated: Use [`hamming_bitwise_slice`] instead, or consider
-/// [`hamming_bitwise_array`] for fixed-size arrays (faster) or
-/// [`hamming_bitwise_batch`] for comparing one source against many targets (even faster).
+/// [`hamming_bitwise_array`] for fixed-size arrays under 2048 bits (10-100% faster) or
+/// [`hamming_bitwise_batch`] for comparing one source against many targets.
 #[deprecated(
     since = "1.1.0",
-    note = "renamed to hamming_bitwise_slice; consider hamming_bitwise_array or hamming_bitwise_batch for better performance"
+    note = "renamed to hamming_bitwise_slice; consider hamming_bitwise_array for fixed-size arrays under 2048 bits (10-100% faster) or hamming_bitwise_batch for bulk comparisons"
 )]
 #[inline]
 pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
