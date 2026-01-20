@@ -1,5 +1,6 @@
 [package]
 name = "hamming-bitwise-fast"
+autobenches = false
 description = "A fast, zero-dependency implementation of bitwise Hamming Distance using a method amenable to auto-vectorization."
 version = "1.0.0"
 edition = "2021"
@@ -7,6 +8,9 @@ authors = ["Evan Schwartz"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/emschwartz/hamming-bitwise-fast"
 documentation = "https://docs.rs/hamming-bitwise-fast"
+
+[lib]
+bench = false
 
 [features]
 default = []

@@ -1,25 +1,19 @@
 #!/bin/bash
 # Compare benchmark results with different compiler flags
-# This script demonstrates the impact of compiler optimization flags
-# on the dispatch benchmarks across different vector sizes.
+# This script runs all benchmarks with various compiler optimization flags,
+# saving each configuration to a separate baseline for comparison.
 #
 # Usage:
-#   ./scripts/bench_compiler_flags.sh           # Run all sizes
-#   ./scripts/bench_compiler_flags.sh 1024bit   # Run only 1024-bit
-#   ./scripts/bench_compiler_flags.sh 512bit    # Run only 512-bit
-#
-# To run benchmarks manually filtered by size:
-#   cargo bench -- "1024bit"                    # All 1024-bit benchmarks
-#   cargo bench -- "dispatch.*1024bit"          # Only dispatch group, 1024-bit
-#   cargo bench -- "head_to_head.*512bit"       # Only head_to_head, 512-bit
+#   ./scripts/bench_compiler_flags.sh            # Run all benchmarks
+#   ./scripts/bench_compiler_flags.sh "1024b"    # Filter to 1024-bit only
+#   ./scripts/bench_compiler_flags.sh "512b"     # Filter to 512-bit only
+#   ./scripts/bench_compiler_flags.sh "dispatch" # Filter to dispatch group only
 
 set -e
 
-SIZE_FILTER="${1:-}"  # Optional size filter (e.g., "1024bit")
-BENCH_FILTER="dispatch"
-if [ -n "$SIZE_FILTER" ]; then
-    BENCH_FILTER="dispatch.*$SIZE_FILTER"
-    echo "Filtering to size: $SIZE_FILTER"
+BENCH_FILTER="${1:-}"  # Optional filter (e.g., "1024bit", "dispatch")
+if [ -n "$BENCH_FILTER" ]; then
+    echo "Filtering to: $BENCH_FILTER"
 fi
 
 ARCH=$(uname -m)
@@ -35,21 +29,28 @@ run_bench() {
     local rustflags="$2"
     local features="${3:-}"
 
+    # Convert name to baseline-friendly format (lowercase, no spaces/dots, alphanumeric + underscores)
+    local baseline
+    baseline=$(echo "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//')
+
     echo "=== $name ==="
+    echo "    (baseline: $baseline)"
     echo ""
 
+    local cargo_args=()
+    if [ -n "$features" ]; then
+        cargo_args+=(--features "$features")
+    fi
+
+    local criterion_args=(--save-baseline "$baseline")
+    if [ -n "$BENCH_FILTER" ]; then
+        criterion_args+=("$BENCH_FILTER")
+    fi
+
     if [ -n "$rustflags" ]; then
-        if [ -n "$features" ]; then
-            RUSTFLAGS="$rustflags" cargo bench --bench single_pair --features "$features" -- "$BENCH_FILTER" 2>/dev/null || echo "  [SKIPPED - CPU doesn't support required features]"
-        else
-            RUSTFLAGS="$rustflags" cargo bench --bench single_pair -- "$BENCH_FILTER" 2>/dev/null || echo "  [SKIPPED - CPU doesn't support required features]"
-        fi
+        RUSTFLAGS="$rustflags" cargo bench "${cargo_args[@]}" -- "${criterion_args[@]}" 2>/dev/null || echo "  [SKIPPED - CPU doesn't support required features]"
     else
-        if [ -n "$features" ]; then
-            cargo bench --bench single_pair --features "$features" -- "$BENCH_FILTER" 2>/dev/null || echo "  [SKIPPED - feature not available]"
-        else
-            cargo bench --bench single_pair -- "$BENCH_FILTER" 2>/dev/null
-        fi
+        cargo bench "${cargo_args[@]}" -- "${criterion_args[@]}" || echo "  [SKIPPED - benchmark failed]"
     fi
     echo ""
 }
@@ -67,15 +68,6 @@ if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
     echo "--- Baseline (no features) ---"
     run_bench "1a. Default" ""
     run_bench "1b. Default + native" "-C target-cpu=native"
-
-    echo "--- With multiversion feature ---"
-    run_bench "2a. multiversion" "" "multiversion"
-    run_bench "2b. multiversion + native" "-C target-cpu=native" "multiversion"
-
-    echo "--- With pulp feature ---"
-    run_bench "3a. pulp" "" "pulp"
-    run_bench "3b. pulp + native" "-C target-cpu=native" "pulp"
-
 else
     # =========================================================================
     # x86-64 (Intel/AMD)
@@ -109,7 +101,11 @@ echo "=============================================="
 echo "Summary"
 echo "=============================================="
 echo ""
-echo "Each configuration tested with both default and native CPU targeting."
+echo "Each configuration saved to a unique baseline in target/criterion/."
+echo ""
+echo "Compare baselines:"
+echo "  cargo bench -- --baseline 1a_default           # Compare current vs 1a_default"
+echo "  cargo bench -- --load-baseline 1a_default      # Load without running new benchmarks"
 echo ""
 if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
     echo "ARM64 Notes:"
@@ -123,6 +119,6 @@ else
     echo "  - 'multiversion' gives runtime detection (portable + fast)"
 fi
 echo ""
-echo "Filter benchmarks by size:"
-echo "  cargo bench -- '1024bit'           # All groups, 1024-bit only"
-echo "  cargo bench -- 'dispatch.*512bit'  # Dispatch group, 512-bit only"
+echo "Filter examples:"
+echo "  ./scripts/bench_compiler_flags.sh '1024b'    # Only 1024-bit benchmarks"
+echo "  ./scripts/bench_compiler_flags.sh 'dispatch' # Only dispatch group"
