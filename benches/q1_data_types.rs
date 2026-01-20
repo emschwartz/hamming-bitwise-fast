@@ -60,7 +60,7 @@ fn data_type_benchmarks(c: &mut Criterion) {
     bench_u8_chunks!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
 
     // ========================================================================
-    // u8 array: chunks_exact(8) with remainder handling
+    // u8 array: chunks_exact(8) with byte-by-byte remainder (alternative)
     // ========================================================================
     macro_rules! bench_u8_chunks_remainder {
         ($($bits:literal => $bytes:literal),+ $(,)?) => {
@@ -81,7 +81,7 @@ fn data_type_benchmarks(c: &mut Criterion) {
     bench_u8_chunks_remainder!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
 
     // ========================================================================
-    // Library's hamming<N> function
+    // Library's hamming_bitwise_array (uses u64 chunks with packed remainder)
     // ========================================================================
     macro_rules! bench_library {
         ($($bits:literal => $bytes:literal),+ $(,)?) => {

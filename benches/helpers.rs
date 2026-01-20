@@ -5,6 +5,7 @@
 
 #![allow(dead_code)]
 
+use hamming_bitwise_fast::hamming_bitwise_array;
 use rand::Rng;
 
 // ============================================================================
@@ -95,7 +96,9 @@ pub fn hamming_u8_chunks<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
         .sum()
 }
 
-/// Hamming distance on u8 arrays using chunks_exact(8) with remainder handling.
+/// Hamming distance on u8 arrays using chunks_exact(8) with byte-by-byte remainder.
+/// This is an ALTERNATIVE to the library's packed remainder approach.
+/// Useful for benchmarking to show the benefit of packing remainder bytes.
 #[inline]
 pub fn hamming_u8_chunks_with_remainder<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     let mut dist: u32 = a
@@ -108,7 +111,7 @@ pub fn hamming_u8_chunks_with_remainder<const N: usize>(a: &[u8; N], b: &[u8; N]
         })
         .sum();
 
-    // Handle remainder bytes
+    // Handle remainder bytes one at a time (alternative to packed approach)
     for (x, y) in a
         .chunks_exact(8)
         .remainder()
@@ -199,54 +202,18 @@ pub fn hamming_slice_u64_chunks(a: &[u8], b: &[u8]) -> u32 {
 }
 
 // ============================================================================
-// Multiversion implementations (for Q3: SIMD dispatch)
-// ============================================================================
-
-#[cfg(feature = "multiversion_x86")]
-#[multiversion::multiversion(targets(
-    "x86_64+avx512vpopcntdq+avx512vl",
-    "x86_64+avx512bw+avx512vl",
-    "x86_64+avx2+popcnt",
-    "x86_64+sse4.2+popcnt",
-    "x86+avx2+popcnt",
-    "x86+sse4.2+popcnt",
-    "aarch64+neon",
-))]
-#[inline]
-pub fn hamming_multiversion<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
-    a.chunks_exact(8)
-        .zip(b.chunks_exact(8))
-        .map(|(a_chunk, b_chunk)| {
-            let a_val = u64::from_ne_bytes(a_chunk.try_into().unwrap());
-            let b_val = u64::from_ne_bytes(b_chunk.try_into().unwrap());
-            (a_val ^ b_val).count_ones()
-        })
-        .sum()
-}
-
-// ============================================================================
 // Batch implementations (for Q4: batching)
 // ============================================================================
 
-/// Batch hamming with variable-size output slice.
-pub fn hamming_batch_variable<const N: usize>(
-    source: &[u8; N],
-    targets: &[[u8; N]],
-    out: &mut [u32],
-) {
-    assert_eq!(targets.len(), out.len());
-    for (i, target) in targets.iter().enumerate() {
-        out[i] = hamming_u8_iter(source, target);
-    }
-}
-
-/// Batch hamming with fixed-size output array.
+/// Batch hamming with fixed-size arrays for targets and output.
+/// Tests whether compile-time known batch size enables better optimization.
+/// Uses the library's hamming_bitwise_array internally for fair comparison.
 pub fn hamming_batch_fixed<const N: usize, const B: usize>(
     source: &[u8; N],
     targets: &[[u8; N]; B],
     out: &mut [u32; B],
 ) {
     for i in 0..B {
-        out[i] = hamming_u8_iter(source, &targets[i]);
+        out[i] = hamming_bitwise_array(source, &targets[i]);
     }
 }

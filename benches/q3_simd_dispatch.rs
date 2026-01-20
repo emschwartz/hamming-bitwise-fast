@@ -69,32 +69,7 @@ fn simd_dispatch(c: &mut Criterion) {
     bench_u8_chunks!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
 
     // ========================================================================
-    // Multiversion: Runtime CPU feature detection via the multiversion crate
-    // Only active when compiled with --features multiversion_x86
-    // ========================================================================
-    #[cfg(feature = "multiversion_x86")]
-    {
-        macro_rules! bench_multiversion {
-            ($($bits:literal => $bytes:literal),+ $(,)?) => {
-                $(
-                    {
-                        let a: [u8; $bytes] = random_bytes();
-                        let b: [u8; $bytes] = random_bytes();
-                        group.bench_function(
-                            BenchmarkId::new("multiversion", concat!(stringify!($bits), "b")),
-                            |bench| {
-                                bench.iter(|| hamming_multiversion(black_box(&a), black_box(&b)));
-                            },
-                        );
-                    }
-                )+
-            };
-        }
-        bench_multiversion!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
-    }
-
-    // ========================================================================
-    // Library's hamming<N> function: Uses internal platform-specific optimization
+    // Library's hamming_bitwise_array: Uses multiversion when feature enabled
     // ========================================================================
     macro_rules! bench_library {
         ($($bits:literal => $bytes:literal),+ $(,)?) => {

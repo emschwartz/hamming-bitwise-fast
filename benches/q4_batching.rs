@@ -148,7 +148,7 @@ fn batching_benchmarks(c: &mut Criterion) {
                             BenchmarkId::new("variable", concat!(stringify!($bits), "b")),
                             |bench| {
                                 bench.iter(|| {
-                                    hamming_batch_variable(
+                                    hamming_bitwise_batch(
                                         black_box(&source),
                                         black_box(&targets),
                                         black_box(&mut out),
