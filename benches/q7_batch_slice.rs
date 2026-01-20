@@ -1,7 +1,7 @@
 //! Q7: How does our batch slice API compare to individual slice calls and competitors?
 //!
 //! Key questions:
-//! - Does hamming_bitwise_batch_slice provide speedup over hamming_bitwise_slice in a loop?
+//! - Does hamming_bitwise_slice_batch provide speedup over hamming_bitwise_slice in a loop?
 //! - How does our batch slice compare to competitor crates in loops?
 //!
 //! Run with: cargo bench --bench q7_batch_slice
@@ -10,7 +10,7 @@
 mod helpers;
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use hamming_bitwise_fast::{hamming_bitwise_batch_slice, hamming_bitwise_slice};
+use hamming_bitwise_fast::{hamming_bitwise_slice_batch, hamming_bitwise_slice};
 use helpers::*;
 
 const BATCH: usize = 64;
@@ -36,11 +36,11 @@ fn batch_slice_vs_loop(c: &mut Criterion) {
         {
             let mut out = vec![0u32; BATCH];
             group.bench_with_input(
-                BenchmarkId::new("hamming_bitwise_batch_slice", size),
+                BenchmarkId::new("hamming_bitwise_slice_batch", size),
                 &size,
                 |b, _| {
                     b.iter(|| {
-                        hamming_bitwise_batch_slice(
+                        hamming_bitwise_slice_batch(
                             black_box(&source),
                             black_box(&targets),
                             black_box(&mut out),
@@ -93,11 +93,11 @@ fn batch_slice_competitors(c: &mut Criterion) {
         {
             let mut out = vec![0u32; BATCH];
             group.bench_with_input(
-                BenchmarkId::new("hamming_bitwise_batch_slice", size),
+                BenchmarkId::new("hamming_bitwise_slice_batch", size),
                 &size,
                 |b, _| {
                     b.iter(|| {
-                        hamming_bitwise_batch_slice(
+                        hamming_bitwise_slice_batch(
                             black_box(&source),
                             black_box(&targets),
                             black_box(&mut out),

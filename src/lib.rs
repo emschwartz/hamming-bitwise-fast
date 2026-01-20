@@ -24,12 +24,12 @@
 //!
 //! For batch operations:
 //! ```
-//! use hamming_bitwise_fast::hamming_bitwise_batch;
+//! use hamming_bitwise_fast::hamming_bitwise_array_batch;
 //!
 //! let source: [u8; 128] = [0; 128];
 //! let targets: Vec<[u8; 128]> = vec![[1; 128], [2; 128], [3; 128]];
 //! let mut distances = vec![0u32; targets.len()];
-//! hamming_bitwise_batch(&source, &targets, &mut distances);
+//! hamming_bitwise_array_batch(&source, &targets, &mut distances);
 //! ```
 //!
 //! # Feature Flags
@@ -194,13 +194,13 @@ pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
 /// # Example
 ///
 /// ```
-/// use hamming_bitwise_fast::hamming_bitwise_batch;
+/// use hamming_bitwise_fast::hamming_bitwise_array_batch;
 ///
 /// let source: [u8; 128] = [0; 128];
 /// let targets = vec![[1u8; 128], [2u8; 128], [3u8; 128]];
 /// let mut distances = vec![0u32; 3];
 ///
-/// hamming_bitwise_batch(&source, &targets, &mut distances);
+/// hamming_bitwise_array_batch(&source, &targets, &mut distances);
 /// ```
 #[cfg(all(
     feature = "multiversion_x86",
@@ -214,7 +214,7 @@ pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     "x86+avx2+popcnt",
     "x86+sse4.2+popcnt",
 ))]
-pub fn hamming_bitwise_batch<const N: usize>(
+pub fn hamming_bitwise_array_batch<const N: usize>(
     source: &[u8; N],
     targets: &[[u8; N]],
     out: &mut [u32],
@@ -227,7 +227,7 @@ pub fn hamming_bitwise_batch<const N: usize>(
     feature = "multiversion_x86",
     any(target_arch = "x86", target_arch = "x86_64")
 )))]
-pub fn hamming_bitwise_batch<const N: usize>(
+pub fn hamming_bitwise_array_batch<const N: usize>(
     source: &[u8; N],
     targets: &[[u8; N]],
     out: &mut [u32],
@@ -241,7 +241,7 @@ pub fn hamming_bitwise_batch<const N: usize>(
 
 /// Compute Hamming distance from one source slice to many target slices.
 ///
-/// This is the slice-based equivalent of [`hamming_bitwise_batch`], useful when
+/// This is the slice-based equivalent of [`hamming_bitwise_array_batch`], useful when
 /// embedding sizes are not known at compile time or when working with dynamically
 /// sized data.
 ///
@@ -260,14 +260,14 @@ pub fn hamming_bitwise_batch<const N: usize>(
 /// # Example
 ///
 /// ```
-/// use hamming_bitwise_fast::hamming_bitwise_batch_slice;
+/// use hamming_bitwise_fast::hamming_bitwise_slice_batch;
 ///
 /// let source = vec![0u8; 128];
 /// let targets_owned: Vec<Vec<u8>> = vec![vec![1u8; 128], vec![2u8; 128], vec![3u8; 128]];
 /// let targets: Vec<&[u8]> = targets_owned.iter().map(|v| v.as_slice()).collect();
 /// let mut distances = vec![0u32; 3];
 ///
-/// hamming_bitwise_batch_slice(&source, &targets, &mut distances);
+/// hamming_bitwise_slice_batch(&source, &targets, &mut distances);
 /// ```
 #[cfg(all(
     feature = "multiversion_x86",
@@ -281,7 +281,7 @@ pub fn hamming_bitwise_batch<const N: usize>(
     "x86+avx2+popcnt",
     "x86+sse4.2+popcnt",
 ))]
-pub fn hamming_bitwise_batch_slice(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
+pub fn hamming_bitwise_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
     hamming_batch_slice_chunks(source, targets, out)
 }
 
@@ -290,13 +290,13 @@ pub fn hamming_bitwise_batch_slice(source: &[u8], targets: &[&[u8]], out: &mut [
     not(feature = "multiversion_x86"),
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
-pub fn hamming_bitwise_batch_slice(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
+pub fn hamming_bitwise_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
     hamming_batch_slice_chunks(source, targets, out)
 }
 
 /// Compute Hamming distance from one source slice to many target slices (non-x86).
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-pub fn hamming_bitwise_batch_slice(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
+pub fn hamming_bitwise_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
     assert_eq!(targets.len(), out.len());
 
     for (target, dist) in targets.iter().zip(out.iter_mut()) {
@@ -306,10 +306,10 @@ pub fn hamming_bitwise_batch_slice(source: &[u8], targets: &[&[u8]], out: &mut [
 
 /// Deprecated: Use [`hamming_bitwise_slice`] instead, or consider
 /// [`hamming_bitwise_array`] for fixed-size arrays under 2048 bits (10-100% faster) or
-/// [`hamming_bitwise_batch`] for comparing one source against many targets.
+/// [`hamming_bitwise_array_batch`] for comparing one source against many targets.
 #[deprecated(
     since = "1.1.0",
-    note = "renamed to hamming_bitwise_slice; consider hamming_bitwise_array for fixed-size arrays under 2048 bits (10-100% faster) or hamming_bitwise_batch for bulk comparisons"
+    note = "renamed to hamming_bitwise_slice; consider hamming_bitwise_array for fixed-size arrays under 2048 bits (10-100% faster) or hamming_bitwise_array_batch for bulk comparisons"
 )]
 #[inline]
 pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
@@ -448,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn hamming_bitwise_batch_correctness() {
+    fn hamming_bitwise_array_batch_correctness() {
         let source: [u8; 128] = [0; 128];
         let targets = vec![
             [0xFFu8; 128], // 1024 bits different
@@ -457,7 +457,7 @@ mod tests {
         ];
         let mut out = vec![0u32; 3];
 
-        hamming_bitwise_batch(&source, &targets, &mut out);
+        hamming_bitwise_array_batch(&source, &targets, &mut out);
 
         assert_eq!(out[0], 1024);
         assert_eq!(out[1], 0);
@@ -511,13 +511,13 @@ mod tests {
         let source: [u8; 13] = [0; 13];
         let targets = vec![[0xFFu8; 13], [0u8; 13]];
         let mut out = vec![0u32; 2];
-        hamming_bitwise_batch(&source, &targets, &mut out);
+        hamming_bitwise_array_batch(&source, &targets, &mut out);
         assert_eq!(out[0], 104);
         assert_eq!(out[1], 0);
     }
 
     #[test]
-    fn hamming_bitwise_batch_slice_correctness() {
+    fn hamming_bitwise_slice_batch_correctness() {
         let source = vec![0u8; 128];
         let targets_owned = vec![
             vec![0xFFu8; 128], // 1024 bits different
@@ -527,7 +527,7 @@ mod tests {
         let targets: Vec<&[u8]> = targets_owned.iter().map(|v| v.as_slice()).collect();
         let mut out = vec![0u32; 3];
 
-        hamming_bitwise_batch_slice(&source, &targets, &mut out);
+        hamming_bitwise_slice_batch(&source, &targets, &mut out);
 
         assert_eq!(out[0], 1024);
         assert_eq!(out[1], 0);
@@ -540,23 +540,23 @@ mod tests {
     }
 
     #[test]
-    fn hamming_bitwise_batch_slice_empty() {
+    fn hamming_bitwise_slice_batch_empty() {
         let source = vec![0u8; 128];
         let targets: Vec<&[u8]> = vec![];
         let mut out: Vec<u32> = vec![];
 
         // Should succeed with empty inputs
-        hamming_bitwise_batch_slice(&source, &targets, &mut out);
+        hamming_bitwise_slice_batch(&source, &targets, &mut out);
     }
 
     #[test]
     #[should_panic]
-    fn hamming_bitwise_batch_slice_output_size_mismatch() {
+    fn hamming_bitwise_slice_batch_output_size_mismatch() {
         let source = vec![0u8; 128];
         let targets_owned = vec![vec![0u8; 128], vec![0u8; 128]];
         let targets: Vec<&[u8]> = targets_owned.iter().map(|v| v.as_slice()).collect();
         let mut out = vec![0u32; 1]; // Wrong size!
 
-        hamming_bitwise_batch_slice(&source, &targets, &mut out);
+        hamming_bitwise_slice_batch(&source, &targets, &mut out);
     }
 }

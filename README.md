@@ -30,12 +30,12 @@ assert_eq!(hamming_bitwise_array(&a, &b), 1024);
 
 For batch comparisons (one source vs many targets):
 ```rust
-use hamming_bitwise_fast::hamming_bitwise_batch;
+use hamming_bitwise_fast::hamming_bitwise_array_batch;
 
 let source: [u8; 128] = [0; 128];
 let targets = vec![[0xFF; 128], [0; 128]];
 let mut distances = vec![0u32; 2];
-hamming_bitwise_batch(&source, &targets, &mut distances);
+hamming_bitwise_array_batch(&source, &targets, &mut distances);
 assert_eq!(distances, vec![1024, 0]);
 ```
 
@@ -45,7 +45,7 @@ assert_eq!(distances, vec![1024, 0]);
 |----------|----------|-----|
 | `hamming_bitwise_array` | Fixed-size embeddings < 256 bytes | Compile-time size enables loop unrolling |
 | `hamming_bitwise_slice` | Variable-length or large (≥256 byte) data | Simpler API; performance matches array at large sizes |
-| `hamming_bitwise_batch` | One-to-many comparisons | Amortizes function call overhead |
+| `hamming_bitwise_array_batch` | One-to-many comparisons | Amortizes function call overhead |
 
 On x86, enable the `multiversion_x86` feature for runtime CPU dispatch to AVX-512/AVX2.
 
