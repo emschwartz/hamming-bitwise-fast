@@ -11,11 +11,9 @@ documentation = "https://docs.rs/hamming-bitwise-fast"
 [features]
 default = []
 multiversion_x86 = ["dep:multiversion"]
-# Disables ARM-specific zero-cost cast optimization for pure safe Rust
-no-unsafe = []
 
 [dependencies]
-multiversion = { version = "0.7", optional = true }
+multiversion = { version = "0.8", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -48,4 +46,8 @@ harness = false
 
 [[bench]]
 name = "q5_vs_competitors"
+harness = false
+
+[[bench]]
+name = "q6_slice_multiversion"
 harness = false

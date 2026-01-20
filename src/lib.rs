@@ -38,59 +38,53 @@
 //!   Recommended for x86 deployments. On ARM and other non-x86 platforms,
 //!   this feature has no effect (auto-vectorization is already near-optimal).
 
+// ============================================================================
+// Public API
+// ============================================================================
+
 /// Calculate the bitwise Hamming distance between two byte slices.
 ///
-/// While this implementation does not explicitly use SIMD, it uses
-/// a technique that is amenable to auto-vectorization. Its performance
-/// is similar to or faster than more complex implementations that use
-/// explicit SIMD instructions for specific architectures.
+/// This function uses runtime CPU detection to dispatch to optimized SIMD implementations
+/// on x86/x86_64 platforms when the `multiversion_x86` feature is enabled.
+///
+/// # Performance
+///
+/// - On x86 with `multiversion_x86`: Uses AVX-512 VPOPCNTDQ when available (~3ns for 1024-bit)
+/// - On ARM: Uses NEON-friendly auto-vectorization (~4-5ns for 1024-bit)
+/// - On x86 without `multiversion_x86`: Uses auto-vectorized u64 chunked processing
+///
+/// For known compile-time sizes, consider [`hamming_bitwise_array`] which can be
+/// ~2x faster on ARM due to full loop unrolling.
 ///
 /// # Panics
 ///
 /// Panics if the two slices are not the same length.
+#[cfg(all(
+    feature = "multiversion_x86",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+#[multiversion::multiversion(targets(
+    "x86_64+avx512vpopcntdq+avx512vl",
+    "x86_64+avx512bw+avx512vl",
+    "x86_64+avx2+popcnt",
+    "x86_64+sse4.2+popcnt",
+    "x86+avx2+popcnt",
+    "x86+sse4.2+popcnt",
+))]
 #[inline]
 pub fn hamming_bitwise_slice(x: &[u8], y: &[u8]) -> u32 {
-    assert_eq!(x.len(), y.len());
-
-    // Process 8 bytes at a time using u64
-    let mut distance = x
-        .chunks_exact(8)
-        .zip(y.chunks_exact(8))
-        .map(|(x_chunk, y_chunk)| {
-            let x_val = u64::from_ne_bytes(x_chunk.try_into().unwrap());
-            let y_val = u64::from_ne_bytes(y_chunk.try_into().unwrap());
-            (x_val ^ y_val).count_ones()
-        })
-        .sum::<u32>();
-
-    // Handle remainder bytes
-    for (x_byte, y_byte) in x
-        .chunks_exact(8)
-        .remainder()
-        .iter()
-        .zip(y.chunks_exact(8).remainder())
-    {
-        distance += (x_byte ^ y_byte).count_ones();
-    }
-
-    distance
+    hamming_slice_inner(x, y)
 }
 
-/// Deprecated: Use [`hamming_bitwise_slice`] instead, or consider
-/// [`hamming_bitwise_array`] for fixed-size arrays (faster) or
-/// [`hamming_bitwise_batch`] for comparing one source against many targets (even faster).
-#[deprecated(
-    since = "1.1.0",
-    note = "renamed to hamming_bitwise_slice; consider hamming_bitwise_array or hamming_bitwise_batch for better performance"
-)]
+/// Calculate the bitwise Hamming distance between two byte slices (non-multiversion).
+#[cfg(not(all(
+    feature = "multiversion_x86",
+    any(target_arch = "x86", target_arch = "x86_64")
+)))]
 #[inline]
-pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
-    hamming_bitwise_slice(x, y)
+pub fn hamming_bitwise_slice(x: &[u8], y: &[u8]) -> u32 {
+    hamming_slice_inner(x, y)
 }
-
-// ============================================================================
-// Platform-optimized const-generic implementations
-// ============================================================================
 
 /// Compute Hamming distance for fixed-size byte arrays.
 ///
@@ -207,6 +201,51 @@ pub fn hamming_bitwise_batch<const N: usize>(
     hamming_batch_inner(source, targets, out)
 }
 
+/// Deprecated: Use [`hamming_bitwise_slice`] instead, or consider
+/// [`hamming_bitwise_array`] for fixed-size arrays (faster) or
+/// [`hamming_bitwise_batch`] for comparing one source against many targets (even faster).
+#[deprecated(
+    since = "1.1.0",
+    note = "renamed to hamming_bitwise_slice; consider hamming_bitwise_array or hamming_bitwise_batch for better performance"
+)]
+#[inline]
+pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
+    hamming_bitwise_slice(x, y)
+}
+
+// ============================================================================
+// Internal implementations
+// ============================================================================
+
+/// Internal slice implementation.
+#[inline]
+fn hamming_slice_inner(x: &[u8], y: &[u8]) -> u32 {
+    assert_eq!(x.len(), y.len());
+
+    // Process 8 bytes at a time using u64
+    let mut distance = x
+        .chunks_exact(8)
+        .zip(y.chunks_exact(8))
+        .map(|(x_chunk, y_chunk)| {
+            let x_val = u64::from_ne_bytes(x_chunk.try_into().unwrap());
+            let y_val = u64::from_ne_bytes(y_chunk.try_into().unwrap());
+            (x_val ^ y_val).count_ones()
+        })
+        .sum::<u32>();
+
+    // Handle remainder bytes
+    for (x_byte, y_byte) in x
+        .chunks_exact(8)
+        .remainder()
+        .iter()
+        .zip(y.chunks_exact(8).remainder())
+    {
+        distance += (x_byte ^ y_byte).count_ones();
+    }
+
+    distance
+}
+
 /// Internal implementation that selects the optimal strategy per platform.
 #[inline]
 fn hamming_inner<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
@@ -265,6 +304,10 @@ fn hamming_batch_inner<const N: usize>(source: &[u8; N], targets: &[[u8; N]], ou
         *dist = hamming_inner(source, target);
     }
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
 
 #[cfg(test)]
 mod tests {

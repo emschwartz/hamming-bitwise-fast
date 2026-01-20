@@ -134,6 +134,37 @@ pub fn hamming_slice(a: &[u8], b: &[u8]) -> u32 {
         .sum()
 }
 
+/// Original v1 implementation: u64 chunked processing without multiversion.
+/// This is what hamming_bitwise_slice used before multiversion was added.
+/// Kept for benchmarking comparison.
+#[inline]
+pub fn hamming_bitwise_slice_v1(x: &[u8], y: &[u8]) -> u32 {
+    assert_eq!(x.len(), y.len());
+
+    // Process 8 bytes at a time using u64
+    let mut distance = x
+        .chunks_exact(8)
+        .zip(y.chunks_exact(8))
+        .map(|(x_chunk, y_chunk)| {
+            let x_val = u64::from_ne_bytes(x_chunk.try_into().unwrap());
+            let y_val = u64::from_ne_bytes(y_chunk.try_into().unwrap());
+            (x_val ^ y_val).count_ones()
+        })
+        .sum::<u32>();
+
+    // Handle remainder bytes
+    for (x_byte, y_byte) in x
+        .chunks_exact(8)
+        .remainder()
+        .iter()
+        .zip(y.chunks_exact(8).remainder())
+    {
+        distance += (x_byte ^ y_byte).count_ones();
+    }
+
+    distance
+}
+
 /// Hamming distance on u8 slices with assert for multiple-of-8 length.
 #[inline]
 pub fn hamming_slice_assert_multiple8(a: &[u8], b: &[u8]) -> u32 {
