@@ -6,225 +6,244 @@
 //! - What's the speedup from all optimizations combined (batch + arrays)?
 //!
 //! Run with: cargo bench --bench q5_vs_competitors
-//! Filter by size: cargo bench --bench q5_vs_competitors -- 128
+//! With multiversion: cargo bench --features multiversion --bench q5_vs_competitors
 
 mod helpers;
 
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use hamming_bitwise_fast::{hamming, hamming_batch, hamming_bitwise_fast};
 use helpers::*;
 
-fn main() {
-    divan::main();
+// ============================================================================
+// Single comparison benchmarks
+// ============================================================================
+
+fn single_comparison(c: &mut Criterion) {
+    let mut group = c.benchmark_group("single");
+
+    for size in BIT_SIZES {
+        let bytes = size.bytes();
+        let a_vec = random_bytes_vec(bytes);
+        let b_vec = random_bytes_vec(bytes);
+
+        // Original hamming_bitwise_fast (slice API)
+        group.bench_with_input(
+            BenchmarkId::new("hamming_bitwise_fast", size),
+            &size,
+            |b, _| {
+                b.iter(|| hamming_bitwise_fast(black_box(&a_vec), black_box(&b_vec)));
+            },
+        );
+
+        // simsimd
+        group.bench_with_input(BenchmarkId::new("simsimd", size), &size, |b, _| {
+            b.iter(|| simsimd::BinarySimilarity::hamming(black_box(&a_vec), black_box(&b_vec)));
+        });
+
+        // hamming crate
+        group.bench_with_input(BenchmarkId::new("hamming_crate", size), &size, |b, _| {
+            b.iter(|| hamming::distance_fast(black_box(&a_vec), black_box(&b_vec)));
+        });
+
+        // triple_accel
+        group.bench_with_input(BenchmarkId::new("triple_accel", size), &size, |b, _| {
+            b.iter(|| triple_accel::hamming(black_box(&a_vec), black_box(&b_vec)));
+        });
+
+        // hamming_rs (x86 only)
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        group.bench_with_input(BenchmarkId::new("hamming_rs", size), &size, |b, _| {
+            b.iter(|| hamming_rs::distance_faster(black_box(&a_vec), black_box(&b_vec)));
+        });
+    }
+
+    // Our const-generic array API (u8 arrays)
+    // N is in bytes: 64=512bit, 96=768bit, 128=1024bit, 256=2048bit
+    macro_rules! bench_hamming_n {
+        ($($bits:literal => $bytes:literal),+ $(,)?) => {
+            $(
+                {
+                    let a: [u8; $bytes] = random_bytes();
+                    let b: [u8; $bytes] = random_bytes();
+                    group.bench_function(
+                        BenchmarkId::new("hamming_n", concat!(stringify!($bits), "b")),
+                        |bench| {
+                            bench.iter(|| hamming(black_box(&a), black_box(&b)));
+                        },
+                    );
+                }
+            )+
+        };
+    }
+    bench_hamming_n!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+
+    group.finish();
 }
 
 // ============================================================================
-// Single comparison: Our APIs vs external crates
-// Sizes in bytes: 64=512bit, 96=768bit, 128=1024bit, 256=2048bit
+// Batch comparison benchmarks (64 elements)
 // ============================================================================
 
-#[divan::bench_group(name = "single")]
-mod single_comparison {
-    use super::*;
-
-    // --- Our implementations ---
-
-    /// Original slice-based API
-    #[divan::bench(args = [64, 96, 128, 256], name = "ours_slice")]
-    fn ours_slice_api(bencher: divan::Bencher, size: usize) {
-        let a = random_bytes_vec(size);
-        let b = random_bytes_vec(size);
-
-        bencher.bench_local(|| {
-            hamming_bitwise_fast(divan::black_box(&a), divan::black_box(&b))
-        });
-    }
-
-    /// New const-generic array API
-    #[divan::bench(consts = [8, 12, 16, 32], name = "ours_array")]
-    fn ours_array_api<const N: usize>(bencher: divan::Bencher) {
-        let a: Embedding<N> = random_embedding();
-        let b: Embedding<N> = random_embedding();
-
-        bencher.bench_local(|| {
-            hamming(divan::black_box(&a), divan::black_box(&b))
-        });
-    }
-
-    // --- External crates ---
-
-    /// simsimd: SIMD intrinsics
-    #[divan::bench(args = [64, 96, 128, 256], name = "simsimd")]
-    fn simsimd(bencher: divan::Bencher, size: usize) {
-        let a = random_bytes_vec(size);
-        let b = random_bytes_vec(size);
-
-        bencher.bench_local(|| {
-            simsimd::BinarySimilarity::hamming(divan::black_box(&a), divan::black_box(&b))
-        });
-    }
-
-    /// hamming crate: Pure Rust
-    #[divan::bench(args = [64, 96, 128, 256], name = "hamming_crate")]
-    fn hamming_crate(bencher: divan::Bencher, size: usize) {
-        let a = random_bytes_vec(size);
-        let b = random_bytes_vec(size);
-
-        bencher.bench_local(|| {
-            hamming::distance_fast(divan::black_box(&a), divan::black_box(&b))
-        });
-    }
-
-    /// triple_accel: SIMD-accelerated
-    #[divan::bench(args = [64, 96, 128, 256], name = "triple_accel")]
-    fn triple_accel(bencher: divan::Bencher, size: usize) {
-        let a = random_bytes_vec(size);
-        let b = random_bytes_vec(size);
-
-        bencher.bench_local(|| {
-            triple_accel::hamming(divan::black_box(&a), divan::black_box(&b))
-        });
-    }
-
-    /// hamming_rs: x86-specific AVX2/AVX512
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    #[divan::bench(args = [64, 96, 128, 256], name = "hamming_rs")]
-    fn hamming_rs(bencher: divan::Bencher, size: usize) {
-        let a = random_bytes_vec(size);
-        let b = random_bytes_vec(size);
-
-        bencher.bench_local(|| {
-            hamming_rs::distance_faster(divan::black_box(&a), divan::black_box(&b))
-        });
-    }
-}
-
-// ============================================================================
-// Batch comparison: Our batch API vs competitors looping
-// All preallocated for fair comparison. 64 element batches.
-// ============================================================================
-
-#[divan::bench_group(name = "batch_64")]
-mod batch_comparison {
-    use super::*;
-
+fn batch_comparison(c: &mut Criterion) {
+    let mut group = c.benchmark_group("batch_64");
     const BATCH: usize = 64;
 
-    /// Our batch API
-    #[divan::bench(consts = [8, 12, 16, 32], name = "ours_batch")]
-    fn ours_batch<const N: usize>(bencher: divan::Bencher) {
-        let source: Embedding<N> = random_embedding();
-        let targets = random_embeddings::<N>(BATCH);
-        let mut out = vec![0u32; BATCH];
+    // Our batch API with const-generic u8 arrays
+    macro_rules! bench_batch {
+        ($($bits:literal => $bytes:literal),+ $(,)?) => {
+            $(
+                {
+                    let source: [u8; $bytes] = random_bytes();
+                    let targets: Vec<[u8; $bytes]> = random_bytes_array(BATCH);
+                    let mut out = vec![0u32; BATCH];
 
-        bencher
-            .counter(divan::counter::ItemsCount::new(BATCH))
-            .bench_local(|| {
-                hamming_batch(
-                    divan::black_box(&source),
-                    divan::black_box(&targets),
-                    &mut out,
-                );
-                divan::black_box(out[0])
-            });
-    }
-
-    /// Our loop with array API
-    #[divan::bench(consts = [8, 12, 16, 32], name = "ours_loop")]
-    fn ours_loop<const N: usize>(bencher: divan::Bencher) {
-        let source: Embedding<N> = random_embedding();
-        let targets = random_embeddings::<N>(BATCH);
-        let mut out = vec![0u32; BATCH];
-
-        bencher
-            .counter(divan::counter::ItemsCount::new(BATCH))
-            .bench_local(|| {
-                for (i, target) in targets.iter().enumerate() {
-                    out[i] = hamming(divan::black_box(&source), divan::black_box(target));
-                }
-                divan::black_box(out[0])
-            });
-    }
-
-    /// simsimd loop
-    #[divan::bench(args = [64, 96, 128, 256], name = "simsimd_loop")]
-    fn simsimd_loop(bencher: divan::Bencher, size: usize) {
-        let source = random_bytes_vec(size);
-        let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
-        let mut out = vec![0f64; BATCH];
-
-        bencher
-            .counter(divan::counter::ItemsCount::new(BATCH))
-            .bench_local(|| {
-                for (i, target) in targets.iter().enumerate() {
-                    out[i] = simsimd::BinarySimilarity::hamming(
-                        divan::black_box(&source),
-                        divan::black_box(target),
-                    )
-                    .unwrap_or(0.0);
-                }
-                divan::black_box(out[0] as u64)
-            });
-    }
-
-    /// triple_accel loop
-    #[divan::bench(args = [64, 96, 128, 256], name = "triple_accel_loop")]
-    fn triple_accel_loop(bencher: divan::Bencher, size: usize) {
-        let source = random_bytes_vec(size);
-        let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
-        let mut out = vec![0u32; BATCH];
-
-        bencher
-            .counter(divan::counter::ItemsCount::new(BATCH))
-            .bench_local(|| {
-                for (i, target) in targets.iter().enumerate() {
-                    out[i] = triple_accel::hamming(
-                        divan::black_box(&source),
-                        divan::black_box(target),
+                    group.throughput(Throughput::Elements(BATCH as u64));
+                    group.bench_function(
+                        BenchmarkId::new("hamming_batch", concat!(stringify!($bits), "b")),
+                        |bench| {
+                            bench.iter(|| {
+                                hamming_batch(
+                                    black_box(&source),
+                                    black_box(&targets),
+                                    black_box(&mut out),
+                                );
+                                black_box(out[0])
+                            });
+                        },
                     );
                 }
-                divan::black_box(out[0])
-            });
+            )+
+        };
     }
+    bench_batch!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
 
-    /// hamming crate loop
-    #[divan::bench(args = [64, 96, 128, 256], name = "hamming_crate_loop")]
-    fn hamming_crate_loop(bencher: divan::Bencher, size: usize) {
-        let source = random_bytes_vec(size);
-        let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
-        let mut out = vec![0u64; BATCH];
+    // Our hamming<N> in a loop
+    macro_rules! bench_loop {
+        ($($bits:literal => $bytes:literal),+ $(,)?) => {
+            $(
+                {
+                    let source: [u8; $bytes] = random_bytes();
+                    let targets: Vec<[u8; $bytes]> = random_bytes_array(BATCH);
+                    let mut out = vec![0u32; BATCH];
 
-        bencher
-            .counter(divan::counter::ItemsCount::new(BATCH))
-            .bench_local(|| {
-                for (i, target) in targets.iter().enumerate() {
-                    out[i] = hamming::distance_fast(
-                        divan::black_box(&source),
-                        divan::black_box(target),
-                    )
-                    .unwrap_or(0);
-                }
-                divan::black_box(out[0])
-            });
-    }
-
-    /// hamming_rs loop (x86 only)
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    #[divan::bench(args = [64, 96, 128, 256], name = "hamming_rs_loop")]
-    fn hamming_rs_loop(bencher: divan::Bencher, size: usize) {
-        let source = random_bytes_vec(size);
-        let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
-        let mut out = vec![0usize; BATCH];
-
-        bencher
-            .counter(divan::counter::ItemsCount::new(BATCH))
-            .bench_local(|| {
-                for (i, target) in targets.iter().enumerate() {
-                    out[i] = hamming_rs::distance_faster(
-                        divan::black_box(&source),
-                        divan::black_box(target),
+                    group.throughput(Throughput::Elements(BATCH as u64));
+                    group.bench_function(
+                        BenchmarkId::new("hamming_n_loop", concat!(stringify!($bits), "b")),
+                        |bench| {
+                            bench.iter(|| {
+                                for (i, target) in targets.iter().enumerate() {
+                                    out[i] = hamming(black_box(&source), black_box(target));
+                                }
+                                black_box(out[0])
+                            });
+                        },
                     );
                 }
-                divan::black_box(out[0])
-            });
+            )+
+        };
     }
+    bench_loop!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+
+    // Competitor loops with slice APIs
+    for size in BIT_SIZES {
+        let bytes = size.bytes();
+        let source = random_bytes_vec(bytes);
+        let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(bytes)).collect();
+
+        group.throughput(Throughput::Elements(BATCH as u64));
+
+        // Original hamming_bitwise_fast loop
+        {
+            let mut out = vec![0u32; BATCH];
+            group.bench_with_input(
+                BenchmarkId::new("hamming_bitwise_fast_loop", size),
+                &size,
+                |b, _| {
+                    b.iter(|| {
+                        for (i, target) in targets.iter().enumerate() {
+                            out[i] = hamming_bitwise_fast(black_box(&source), black_box(target));
+                        }
+                        black_box(out[0])
+                    });
+                },
+            );
+        }
+
+        // simsimd loop
+        {
+            let mut out = vec![0f64; BATCH];
+            group.bench_with_input(BenchmarkId::new("simsimd_loop", size), &size, |b, _| {
+                b.iter(|| {
+                    for (i, target) in targets.iter().enumerate() {
+                        out[i] = simsimd::BinarySimilarity::hamming(
+                            black_box(&source),
+                            black_box(target),
+                        )
+                        .unwrap_or(0.0);
+                    }
+                    black_box(out[0] as u64)
+                });
+            });
+        }
+
+        // triple_accel loop
+        {
+            let mut out = vec![0u32; BATCH];
+            group.bench_with_input(
+                BenchmarkId::new("triple_accel_loop", size),
+                &size,
+                |b, _| {
+                    b.iter(|| {
+                        for (i, target) in targets.iter().enumerate() {
+                            out[i] = triple_accel::hamming(black_box(&source), black_box(target));
+                        }
+                        black_box(out[0])
+                    });
+                },
+            );
+        }
+
+        // hamming crate loop
+        {
+            let mut out = vec![0u64; BATCH];
+            group.bench_with_input(
+                BenchmarkId::new("hamming_crate_loop", size),
+                &size,
+                |b, _| {
+                    b.iter(|| {
+                        for (i, target) in targets.iter().enumerate() {
+                            out[i] =
+                                hamming::distance_fast(black_box(&source), black_box(target))
+                                    .unwrap_or(0);
+                        }
+                        black_box(out[0])
+                    });
+                },
+            );
+        }
+
+        // hamming_rs loop (x86 only)
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            let mut out = vec![0u64; BATCH];
+            group.bench_with_input(
+                BenchmarkId::new("hamming_rs_loop", size),
+                &size,
+                |b, _| {
+                    b.iter(|| {
+                        for (i, target) in targets.iter().enumerate() {
+                            out[i] =
+                                hamming_rs::distance_faster(black_box(&source), black_box(target));
+                        }
+                        black_box(out[0])
+                    });
+                },
+            );
+        }
+    }
+
+    group.finish();
 }
+
+criterion_group!(benches, single_comparison, batch_comparison);
+criterion_main!(benches);

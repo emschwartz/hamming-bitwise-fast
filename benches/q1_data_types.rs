@@ -1,103 +1,108 @@
-//! Q1: Are u64s or u8s better? Does it depend on the platform?
+//! Q1: What's the fastest way to compute Hamming distance on u8 arrays?
 //!
-//! Key findings to expect:
-//! - ARM (aarch64): u8 arrays are faster due to NEON byte-level optimizations
-//! - x86: u64 arrays are faster due to POPCNT operating on 64-bit values
+//! Key questions:
+//! - Is byte-by-byte iteration faster or slower than chunks_exact(8)?
+//! - Does the remainder handling in chunks_exact add overhead?
+//! - How does the library's hamming<N> compare?
 //!
 //! Run with: cargo bench --bench q1_data_types
+//! With multiversion: cargo bench --features multiversion --bench q1_data_types
 
 mod helpers;
 
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use hamming_bitwise_fast::hamming;
 use helpers::*;
 
-fn main() {
-    divan::main();
+fn data_type_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("data_types");
+
+    // ========================================================================
+    // u8 array: byte-by-byte iteration
+    // ========================================================================
+    macro_rules! bench_u8_iter {
+        ($($bits:literal => $bytes:literal),+ $(,)?) => {
+            $(
+                {
+                    let a: [u8; $bytes] = random_bytes();
+                    let b: [u8; $bytes] = random_bytes();
+                    group.bench_function(
+                        BenchmarkId::new("u8_iter", concat!(stringify!($bits), "b")),
+                        |bench| {
+                            bench.iter(|| hamming_u8_iter(black_box(&a), black_box(&b)));
+                        },
+                    );
+                }
+            )+
+        };
+    }
+    bench_u8_iter!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+
+    // ========================================================================
+    // u8 array: chunks_exact(8) - processes as u64 without remainder
+    // ========================================================================
+    macro_rules! bench_u8_chunks {
+        ($($bits:literal => $bytes:literal),+ $(,)?) => {
+            $(
+                {
+                    let a: [u8; $bytes] = random_bytes();
+                    let b: [u8; $bytes] = random_bytes();
+                    group.bench_function(
+                        BenchmarkId::new("u8_chunks", concat!(stringify!($bits), "b")),
+                        |bench| {
+                            bench.iter(|| hamming_u8_chunks(black_box(&a), black_box(&b)));
+                        },
+                    );
+                }
+            )+
+        };
+    }
+    bench_u8_chunks!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+
+    // ========================================================================
+    // u8 array: chunks_exact(8) with remainder handling
+    // ========================================================================
+    macro_rules! bench_u8_chunks_remainder {
+        ($($bits:literal => $bytes:literal),+ $(,)?) => {
+            $(
+                {
+                    let a: [u8; $bytes] = random_bytes();
+                    let b: [u8; $bytes] = random_bytes();
+                    group.bench_function(
+                        BenchmarkId::new("u8_chunks_rem", concat!(stringify!($bits), "b")),
+                        |bench| {
+                            bench.iter(|| hamming_u8_chunks_with_remainder(black_box(&a), black_box(&b)));
+                        },
+                    );
+                }
+            )+
+        };
+    }
+    bench_u8_chunks_remainder!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+
+    // ========================================================================
+    // Library's hamming<N> function
+    // ========================================================================
+    macro_rules! bench_library {
+        ($($bits:literal => $bytes:literal),+ $(,)?) => {
+            $(
+                {
+                    let a: [u8; $bytes] = random_bytes();
+                    let b: [u8; $bytes] = random_bytes();
+                    group.bench_function(
+                        BenchmarkId::new("library_hamming", concat!(stringify!($bits), "b")),
+                        |bench| {
+                            bench.iter(|| hamming(black_box(&a), black_box(&b)));
+                        },
+                    );
+                }
+            )+
+        };
+    }
+    bench_library!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+
+    group.finish();
 }
 
-// ============================================================================
-// u8 array benchmarks
-// Sizes: 64=512bit, 96=768bit, 128=1024bit, 256=2048bit (in bytes)
-// ============================================================================
-
-#[divan::bench(consts = [64, 96, 128, 256])]
-fn u8_array<const N: usize>(bencher: divan::Bencher) {
-    let a: [u8; N] = random_bytes();
-    let b: [u8; N] = random_bytes();
-
-    bencher.bench_local(|| {
-        hamming_u8_iter(divan::black_box(&a), divan::black_box(&b))
-    });
-}
-
-// ============================================================================
-// u8 array with chunks_exact(8) - safe way to hint u64 processing
-// ============================================================================
-
-#[divan::bench(consts = [64, 96, 128, 256])]
-fn u8_chunks_exact<const N: usize>(bencher: divan::Bencher) {
-    let a: [u8; N] = random_bytes();
-    let b: [u8; N] = random_bytes();
-
-    bencher.bench_local(|| {
-        hamming_u8_chunks(divan::black_box(&a), divan::black_box(&b))
-    });
-}
-
-// ============================================================================
-// u8 array with unsafe cast to u64 on x86
-// Uses compile-time assertion to enforce N is a multiple of 8
-// ============================================================================
-
-#[divan::bench(consts = [64, 96, 128, 256])]
-fn u8_as_u64_on_x86<const N: usize>(bencher: divan::Bencher) {
-    let a: [u8; N] = random_bytes();
-    let b: [u8; N] = random_bytes();
-
-    bencher.bench_local(|| {
-        hamming_u8_as_u64(divan::black_box(&a), divan::black_box(&b))
-    });
-}
-
-// ============================================================================
-// u64 array benchmarks (equivalent sizes)
-// ============================================================================
-
-#[divan::bench(consts = [8, 12, 16, 32])]
-fn u64_array<const N: usize>(bencher: divan::Bencher) {
-    let a: Embedding<N> = random_embedding();
-    let b: Embedding<N> = random_embedding();
-
-    bencher.bench_local(|| {
-        hamming_u64_iter(divan::black_box(&a), divan::black_box(&b))
-    });
-}
-
-// ============================================================================
-// u64 array with unsafe cast to u8 on ARM
-// This is the "best of both worlds" strategy: convenient u64 API, but
-// uses u8 processing on ARM where NEON prefers byte operations.
-// ============================================================================
-
-#[divan::bench(consts = [8, 12, 16, 32])]
-fn u64_as_u8_on_arm<const N: usize>(bencher: divan::Bencher) {
-    let a: Embedding<N> = random_embedding();
-    let b: Embedding<N> = random_embedding();
-
-    bencher.bench_local(|| {
-        hamming_u64_as_u8(divan::black_box(&a), divan::black_box(&b))
-    });
-}
-
-// ============================================================================
-// Library's hamming<N> function (uses platform-optimal strategy internally)
-// ============================================================================
-
-#[divan::bench(consts = [8, 12, 16, 32])]
-fn library_hamming<const N: usize>(bencher: divan::Bencher) {
-    let a: Embedding<N> = random_embedding();
-    let b: Embedding<N> = random_embedding();
-
-    bencher.bench_local(|| {
-        hamming_bitwise_fast::hamming(divan::black_box(&a), divan::black_box(&b))
-    });
-}
+criterion_group!(benches, data_type_benchmarks);
+criterion_main!(benches);

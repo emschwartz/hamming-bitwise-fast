@@ -16,18 +16,18 @@
 //! ```
 //! use hamming_bitwise_fast::hamming;
 //!
-//! // 1024-bit embeddings = 16 u64s
-//! let a: [u64; 16] = [0; 16];
-//! let b: [u64; 16] = [u64::MAX; 16];
+//! // 1024-bit embeddings = 128 bytes
+//! let a: [u8; 128] = [0; 128];
+//! let b: [u8; 128] = [0xFF; 128];
 //! let distance = hamming(&a, &b);
 //! ```
 //!
-//! For batch operations (70% faster than individual calls):
+//! For batch operations:
 //! ```
 //! use hamming_bitwise_fast::hamming_batch;
 //!
-//! let source: [u64; 16] = [0; 16];
-//! let targets: Vec<[u64; 16]> = vec![[1; 16], [2; 16], [3; 16]];
+//! let source: [u8; 128] = [0; 128];
+//! let targets: Vec<[u8; 128]> = vec![[1; 128], [2; 128], [3; 128]];
 //! let mut distances = vec![0u32; targets.len()];
 //! hamming_batch(&source, &targets, &mut distances);
 //! ```
@@ -37,10 +37,6 @@
 //! - `multiversion`: Enables runtime CPU dispatch for optimal SIMD on x86.
 //!   Recommended for x86 deployments. On ARM, auto-vectorization is already
 //!   near-optimal, so this adds minimal benefit.
-//!
-//! - `no-unsafe`: Disables the ARM-specific zero-cost cast optimization.
-//!   Use this if you require pure safe Rust code. Performance impact is ~40%
-//!   slower on ARM; no impact on x86.
 
 /// Calculate the bitwise Hamming distance between two byte slices.
 ///
@@ -61,24 +57,20 @@ pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
         .chunks_exact(8)
         .zip(y.chunks_exact(8))
         .map(|(x_chunk, y_chunk)| {
-            // This is safe because we know the chunks are exactly 8 bytes.
-            // Also, we don't care whether the platform uses little-endian or big-endian
-            // byte order. Since we're only XORing values, we just care that the
-            // endianness is the same for both.
             let x_val = u64::from_ne_bytes(x_chunk.try_into().unwrap());
             let y_val = u64::from_ne_bytes(y_chunk.try_into().unwrap());
             (x_val ^ y_val).count_ones()
         })
         .sum::<u32>();
 
-    if x.len() % 8 != 0 {
-        distance += x
-            .chunks_exact(8)
-            .remainder()
-            .iter()
-            .zip(y.chunks_exact(8).remainder())
-            .map(|(x_byte, y_byte)| (x_byte ^ y_byte).count_ones())
-            .sum::<u32>();
+    // Handle remainder bytes
+    for (x_byte, y_byte) in x
+        .chunks_exact(8)
+        .remainder()
+        .iter()
+        .zip(y.chunks_exact(8).remainder())
+    {
+        distance += (x_byte ^ y_byte).count_ones();
     }
 
     distance
@@ -88,47 +80,31 @@ pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
 // Platform-optimized const-generic implementations
 // ============================================================================
 
-/// Zero-cost cast from `&[u64; N]` to `&[u8; N*8]` on ARM.
-///
-/// On ARM (aarch64), u8-based processing is faster due to NEON's byte-level
-/// operations. This cast allows us to accept u64 arrays (convenient for users)
-/// while processing them as u8 arrays internally.
-#[cfg(all(target_arch = "aarch64", not(feature = "no-unsafe")))]
-#[inline]
-fn as_bytes<const N: usize>(arr: &[u64; N]) -> &[u8] {
-    // SAFETY: [u64; N] and [u8; N*8] have the same memory layout.
-    // u8 has alignment 1, so any pointer is valid for u8.
-    // The lifetime of the returned slice is tied to the input reference.
-    unsafe { std::slice::from_raw_parts(arr.as_ptr() as *const u8, N * 8) }
-}
-
-/// Compute Hamming distance for fixed-size u64 arrays.
+/// Compute Hamming distance for fixed-size byte arrays.
 ///
 /// This is the recommended function for embeddings of known size at compile time.
-/// The const generic `N` represents the number of u64 values (not bytes).
+/// The const generic `N` represents the number of bytes.
 ///
 /// Common sizes:
-/// - `N=8`: 512-bit embedding (64 bytes)
-/// - `N=12`: 768-bit embedding (96 bytes)
-/// - `N=16`: 1024-bit embedding (128 bytes)
-/// - `N=32`: 2048-bit embedding (256 bytes)
+/// - `N=64`: 512-bit embedding
+/// - `N=96`: 768-bit embedding
+/// - `N=128`: 1024-bit embedding
+/// - `N=256`: 2048-bit embedding
 ///
 /// # Performance
 ///
-/// - On ARM (M2, Graviton): Uses optimized u8-based processing (~2.5ns for 1024-bit)
-/// - On x86 (Intel/AMD): Uses u64-based processing with POPCNT (~11ns for 1024-bit)
-///
-/// With the `multiversion` feature enabled, x86 performance improves to ~4ns
-/// through runtime CPU dispatch to AVX2/AVX-512 instructions.
+/// - On ARM (M2, Graviton): Uses NEON byte-level operations (~2ns for 1024-bit)
+/// - On x86 with `multiversion`: Uses AVX-512 VPOPCNTDQ when available (~1-2ns)
+/// - On x86 without features: Uses chunked u64 processing (~8ns for 1024-bit)
 ///
 /// # Example
 ///
 /// ```
 /// use hamming_bitwise_fast::hamming;
 ///
-/// // 1024-bit embeddings
-/// let a: [u64; 16] = [0x123456789ABCDEF0; 16];
-/// let b: [u64; 16] = [0xFEDCBA9876543210; 16];
+/// // 1024-bit embeddings = 128 bytes
+/// let a: [u8; 128] = [0x12; 128];
+/// let b: [u8; 128] = [0xFE; 128];
 /// let distance = hamming(&a, &b);
 /// ```
 #[cfg(feature = "multiversion")]
@@ -142,34 +118,58 @@ fn as_bytes<const N: usize>(arr: &[u64; N]) -> &[u8] {
     "aarch64+neon",
 ))]
 #[inline]
-pub fn hamming<const N: usize>(a: &[u64; N], b: &[u64; N]) -> u32 {
+pub fn hamming<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     hamming_inner(a, b)
 }
 
-/// Compute Hamming distance for fixed-size u64 arrays (non-multiversion).
+/// Compute Hamming distance for fixed-size byte arrays (non-multiversion).
 #[cfg(not(feature = "multiversion"))]
 #[inline]
-pub fn hamming<const N: usize>(a: &[u64; N], b: &[u64; N]) -> u32 {
+pub fn hamming<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     hamming_inner(a, b)
 }
 
 /// Internal implementation that selects the optimal strategy per platform.
 #[inline]
-fn hamming_inner<const N: usize>(a: &[u64; N], b: &[u64; N]) -> u32 {
-    // On ARM without no-unsafe: use u8 processing (fastest)
-    #[cfg(all(target_arch = "aarch64", not(feature = "no-unsafe")))]
+fn hamming_inner<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
+    // On x86: use chunks_exact(8) to process as u64 (enables AVX-512 VPOPCNTDQ)
+    // The remainder handling is written so the compiler can optimize it away
+    // when N is a compile-time constant that's a multiple of 8.
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
-        let a_bytes = as_bytes(a);
-        let b_bytes = as_bytes(b);
-        a_bytes
-            .iter()
-            .zip(b_bytes.iter())
-            .map(|(x, y)| (x ^ y).count_ones())
-            .sum()
+        let chunks_distance: u32 = a
+            .chunks_exact(8)
+            .zip(b.chunks_exact(8))
+            .map(|(a_chunk, b_chunk)| {
+                let a_val = u64::from_ne_bytes(a_chunk.try_into().unwrap());
+                let b_val = u64::from_ne_bytes(b_chunk.try_into().unwrap());
+                (a_val ^ b_val).count_ones()
+            })
+            .sum();
+
+        // Handle remainder bytes by packing into a u64 for a single popcount.
+        // Compiler optimizes this away when N % 8 == 0.
+        let remainder_distance = if N % 8 != 0 {
+            let rem_start = (N / 8) * 8;
+            let a_rem = &a[rem_start..];
+            let b_rem = &b[rem_start..];
+            let mut a_val = 0u64;
+            let mut b_val = 0u64;
+            for (i, (&a_byte, &b_byte)) in a_rem.iter().zip(b_rem).enumerate() {
+                a_val |= (a_byte as u64) << (i * 8);
+                b_val |= (b_byte as u64) << (i * 8);
+            }
+            (a_val ^ b_val).count_ones()
+        } else {
+            0
+        };
+
+        chunks_distance + remainder_distance
     }
 
-    // On x86 or ARM with no-unsafe: use u64 processing
-    #[cfg(any(not(target_arch = "aarch64"), feature = "no-unsafe"))]
+    // On ARM and other architectures: byte-by-byte iteration
+    // (NEON handles this efficiently, and it's a safe default for unknown archs)
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
     {
         a.iter()
             .zip(b.iter())
@@ -184,11 +184,6 @@ fn hamming_inner<const N: usize>(a: &[u64; N], b: &[u64; N]) -> u32 {
 /// 1. The function call overhead is amortized across all comparisons
 /// 2. The source embedding can stay in registers
 /// 3. With `multiversion`, the CPU dispatch happens once for all comparisons
-///
-/// # Performance
-///
-/// Batch operations are approximately 70% faster than individual calls
-/// when processing many embeddings.
 ///
 /// # Arguments
 ///
@@ -205,13 +200,11 @@ fn hamming_inner<const N: usize>(a: &[u64; N], b: &[u64; N]) -> u32 {
 /// ```
 /// use hamming_bitwise_fast::hamming_batch;
 ///
-/// let source: [u64; 16] = [0; 16];
-/// let targets = vec![[1u64; 16], [2u64; 16], [3u64; 16]];
+/// let source: [u8; 128] = [0; 128];
+/// let targets = vec![[1u8; 128], [2u8; 128], [3u8; 128]];
 /// let mut distances = vec![0u32; 3];
 ///
 /// hamming_batch(&source, &targets, &mut distances);
-///
-/// // distances[i] contains hamming(&source, &targets[i])
 /// ```
 #[cfg(feature = "multiversion")]
 #[multiversion::multiversion(targets(
@@ -223,49 +216,68 @@ fn hamming_inner<const N: usize>(a: &[u64; N], b: &[u64; N]) -> u32 {
     "x86+sse4.2+popcnt",
     "aarch64+neon",
 ))]
-pub fn hamming_batch<const N: usize>(source: &[u64; N], targets: &[[u64; N]], out: &mut [u32]) {
+pub fn hamming_batch<const N: usize>(source: &[u8; N], targets: &[[u8; N]], out: &mut [u32]) {
     hamming_batch_inner(source, targets, out)
 }
 
-/// Compute Hamming distance from one source embedding to many targets (non-multiversion).
+/// Compute Hamming distance from one source to many targets (non-multiversion).
 #[cfg(not(feature = "multiversion"))]
-pub fn hamming_batch<const N: usize>(source: &[u64; N], targets: &[[u64; N]], out: &mut [u32]) {
+pub fn hamming_batch<const N: usize>(source: &[u8; N], targets: &[[u8; N]], out: &mut [u32]) {
     hamming_batch_inner(source, targets, out)
 }
 
 /// Internal batch implementation.
 #[inline]
-fn hamming_batch_inner<const N: usize>(
-    source: &[u64; N],
-    targets: &[[u64; N]],
-    out: &mut [u32],
-) {
+fn hamming_batch_inner<const N: usize>(source: &[u8; N], targets: &[[u8; N]], out: &mut [u32]) {
     assert_eq!(targets.len(), out.len());
 
-    // On ARM without no-unsafe: use u8 processing
-    #[cfg(all(target_arch = "aarch64", not(feature = "no-unsafe")))]
+    // On x86: use chunks_exact(8) to process as u64 (enables AVX-512 VPOPCNTDQ)
+    // The remainder handling is written so the compiler can optimize it away
+    // when N is a compile-time constant that's a multiple of 8.
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
-        let source_bytes = as_bytes(source);
-        for (i, target) in targets.iter().enumerate() {
-            let target_bytes = as_bytes(target);
-            out[i] = source_bytes
-                .iter()
-                .zip(target_bytes.iter())
-                .map(|(x, y)| (x ^ y).count_ones())
+        targets.iter().zip(out.iter_mut()).for_each(|(target, dist)| {
+            let chunks_distance: u32 = source
+                .chunks_exact(8)
+                .zip(target.chunks_exact(8))
+                .map(|(a_chunk, b_chunk)| {
+                    let a_val = u64::from_ne_bytes(a_chunk.try_into().unwrap());
+                    let b_val = u64::from_ne_bytes(b_chunk.try_into().unwrap());
+                    (a_val ^ b_val).count_ones()
+                })
                 .sum();
-        }
+
+            // Handle remainder bytes by packing into a u64 for a single popcount.
+            // Compiler optimizes this away when N % 8 == 0.
+            let remainder_distance = if N % 8 != 0 {
+                let rem_start = (N / 8) * 8;
+                let source_rem = &source[rem_start..];
+                let target_rem = &target[rem_start..];
+                let mut a_val = 0u64;
+                let mut b_val = 0u64;
+                for (i, (&a_byte, &b_byte)) in source_rem.iter().zip(target_rem).enumerate() {
+                    a_val |= (a_byte as u64) << (i * 8);
+                    b_val |= (b_byte as u64) << (i * 8);
+                }
+                (a_val ^ b_val).count_ones()
+            } else {
+                0
+            };
+
+            *dist = chunks_distance + remainder_distance;
+        });
     }
 
-    // On x86 or ARM with no-unsafe: use u64 processing
-    #[cfg(any(not(target_arch = "aarch64"), feature = "no-unsafe"))]
+    // On ARM and other architectures: byte-by-byte iteration
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
     {
-        for (i, target) in targets.iter().enumerate() {
-            let mut dist = 0u32;
-            for j in 0..N {
-                dist += (source[j] ^ target[j]).count_ones();
-            }
-            out[i] = dist;
-        }
+        targets.iter().zip(out.iter_mut()).for_each(|(target, dist)| {
+            *dist = source
+                .iter()
+                .zip(target.iter())
+                .map(|(x, y)| (x ^ y).count_ones())
+                .sum();
+        });
     }
 }
 
@@ -275,44 +287,35 @@ mod tests {
 
     #[test]
     fn hamming_bitwise_fast_correctness() {
-        // Test with known values
         let a = [0u8; 128];
         let b = [0xFFu8; 128];
-        // Every bit differs: 128 bytes * 8 bits = 1024 bits
         assert_eq!(hamming_bitwise_fast(&a, &b), 1024);
-
-        // Same values = 0 distance
         assert_eq!(hamming_bitwise_fast(&a, &a), 0);
 
-        // Single bit difference
         let mut c = [0u8; 128];
-        c[0] = 1; // One bit set
+        c[0] = 1;
         assert_eq!(hamming_bitwise_fast(&a, &c), 1);
     }
 
     #[test]
     fn hamming_const_generic_correctness() {
-        let a: [u64; 16] = [0; 16];
-        let b: [u64; 16] = [u64::MAX; 16];
-        // Every bit differs: 16 * 64 = 1024 bits
+        let a: [u8; 128] = [0; 128];
+        let b: [u8; 128] = [0xFF; 128];
         assert_eq!(hamming(&a, &b), 1024);
-
-        // Same values = 0 distance
         assert_eq!(hamming(&a, &a), 0);
 
-        // Single bit difference
-        let mut c = [0u64; 16];
+        let mut c = [0u8; 128];
         c[0] = 1;
         assert_eq!(hamming(&a, &c), 1);
     }
 
     #[test]
     fn hamming_batch_correctness() {
-        let source: [u64; 16] = [0; 16];
+        let source: [u8; 128] = [0; 128];
         let targets = vec![
-            [u64::MAX; 16], // 1024 bits different
-            [0u64; 16],     // 0 bits different
-            [1u64; 16],     // 16 bits different (one bit per u64)
+            [0xFFu8; 128], // 1024 bits different
+            [0u8; 128],    // 0 bits different
+            [1u8; 128],    // 128 bits different (one bit per byte)
         ];
         let mut out = vec![0u32; 3];
 
@@ -320,43 +323,58 @@ mod tests {
 
         assert_eq!(out[0], 1024);
         assert_eq!(out[1], 0);
-        assert_eq!(out[2], 16);
+        assert_eq!(out[2], 128);
     }
 
     #[test]
     fn hamming_matches_bitwise_fast() {
-        // Verify const-generic version matches slice version
-        let a_bytes: Vec<u8> = (0..128).collect();
-        let b_bytes: Vec<u8> = (128..256).map(|x| x as u8).collect();
+        let a: [u8; 128] = std::array::from_fn(|i| i as u8);
+        let b: [u8; 128] = std::array::from_fn(|i| (i + 128) as u8);
 
-        let expected = hamming_bitwise_fast(&a_bytes, &b_bytes);
-
-        // Convert to u64 arrays
-        let a_u64: [u64; 16] = std::array::from_fn(|i| {
-            u64::from_ne_bytes(a_bytes[i * 8..(i + 1) * 8].try_into().unwrap())
-        });
-        let b_u64: [u64; 16] = std::array::from_fn(|i| {
-            u64::from_ne_bytes(b_bytes[i * 8..(i + 1) * 8].try_into().unwrap())
-        });
-
-        assert_eq!(hamming(&a_u64, &b_u64), expected);
+        assert_eq!(hamming(&a, &b), hamming_bitwise_fast(&a, &b));
     }
 
     #[test]
     fn different_embedding_sizes() {
-        // Test 512-bit (8 u64s)
-        let a: [u64; 8] = [0; 8];
-        let b: [u64; 8] = [u64::MAX; 8];
+        // 512-bit (64 bytes)
+        let a: [u8; 64] = [0; 64];
+        let b: [u8; 64] = [0xFF; 64];
         assert_eq!(hamming(&a, &b), 512);
 
-        // Test 768-bit (12 u64s)
-        let a: [u64; 12] = [0; 12];
-        let b: [u64; 12] = [u64::MAX; 12];
+        // 768-bit (96 bytes)
+        let a: [u8; 96] = [0; 96];
+        let b: [u8; 96] = [0xFF; 96];
         assert_eq!(hamming(&a, &b), 768);
 
-        // Test 2048-bit (32 u64s)
-        let a: [u64; 32] = [0; 32];
-        let b: [u64; 32] = [u64::MAX; 32];
+        // 2048-bit (256 bytes)
+        let a: [u8; 256] = [0; 256];
+        let b: [u8; 256] = [0xFF; 256];
         assert_eq!(hamming(&a, &b), 2048);
+    }
+
+    #[test]
+    fn odd_sizes_with_remainder() {
+        // 7 bytes (not a multiple of 8) - tests remainder handling
+        let a: [u8; 7] = [0; 7];
+        let b: [u8; 7] = [0xFF; 7];
+        assert_eq!(hamming(&a, &b), 56); // 7 * 8 = 56 bits
+
+        // 13 bytes (8 + 5 remainder)
+        let a: [u8; 13] = [0; 13];
+        let b: [u8; 13] = [0xFF; 13];
+        assert_eq!(hamming(&a, &b), 104); // 13 * 8 = 104 bits
+
+        // 100 bytes (96 + 4 remainder)
+        let a: [u8; 100] = [0; 100];
+        let b: [u8; 100] = [0xFF; 100];
+        assert_eq!(hamming(&a, &b), 800); // 100 * 8 = 800 bits
+
+        // Also test batch with odd size
+        let source: [u8; 13] = [0; 13];
+        let targets = vec![[0xFFu8; 13], [0u8; 13]];
+        let mut out = vec![0u32; 2];
+        hamming_batch(&source, &targets, &mut out);
+        assert_eq!(out[0], 104);
+        assert_eq!(out[1], 0);
     }
 }

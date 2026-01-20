@@ -5,233 +5,247 @@
 //! - Does the compiler optimize fixed-size batches better?
 //! - What's the overhead of allocation patterns?
 //!
-//! Times shown are PER COMPARISON for easy comparison with Q1.
-//!
 //! Run with: cargo bench --bench q4_batching
 //! Filter by size: cargo bench --bench q4_batching -- 1024
 //! Filter by batch: cargo bench --bench q4_batching -- batch_64
 
 mod helpers;
 
-use hamming_bitwise_fast::hamming_batch;
+use criterion::{
+    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
+};
+use hamming_bitwise_fast::{hamming, hamming_batch};
 use helpers::*;
 use std::cell::Cell;
 
-fn main() {
-    divan::main();
+fn batching_benchmarks(c: &mut Criterion) {
+    // ========================================================================
+    // Per-comparison time: cycling through targets of different batch sizes
+    // ========================================================================
+    {
+        let mut group = c.benchmark_group("per_comparison");
+
+        // Single pair (no batch context) - baseline
+        macro_rules! bench_single {
+            ($($bits:literal => $bytes:literal),+ $(,)?) => {
+                $(
+                    {
+                        let a: [u8; $bytes] = random_bytes();
+                        let b: [u8; $bytes] = random_bytes();
+                        group.bench_function(
+                            BenchmarkId::new("single_pair", concat!(stringify!($bits), "b")),
+                            |bench| {
+                                bench.iter(|| hamming(black_box(&a), black_box(&b)));
+                            },
+                        );
+                    }
+                )+
+            };
+        }
+        bench_single!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+
+        // One comparison from batch of 64 (fits in L1)
+        macro_rules! bench_from_batch {
+            ($batch_size:literal, $name:literal, $($bits:literal => $bytes:literal),+ $(,)?) => {
+                $(
+                    {
+                        let source: [u8; $bytes] = random_bytes();
+                        let targets: Vec<[u8; $bytes]> = random_bytes_array($batch_size);
+                        let idx = Cell::new(0usize);
+
+                        group.bench_function(
+                            BenchmarkId::new($name, concat!(stringify!($bits), "b")),
+                            |bench| {
+                                bench.iter(|| {
+                                    let i = idx.get();
+                                    let result = hamming(black_box(&source), black_box(&targets[i]));
+                                    idx.set((i + 1) % $batch_size);
+                                    result
+                                });
+                            },
+                        );
+                    }
+                )+
+            };
+        }
+        bench_from_batch!(64, "batch_64", 512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+        bench_from_batch!(256, "batch_256", 512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+        bench_from_batch!(1024, "batch_1024", 512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+
+        group.finish();
+    }
+
+    // ========================================================================
+    // Batch API throughput
+    // ========================================================================
+    {
+        let mut group = c.benchmark_group("batch_api");
+
+        macro_rules! bench_batch_api {
+            ($batch_size:literal, $name:literal, $($bits:literal => $bytes:literal),+ $(,)?) => {
+                $(
+                    {
+                        let source: [u8; $bytes] = random_bytes();
+                        let targets: Vec<[u8; $bytes]> = random_bytes_array($batch_size);
+                        let mut out = vec![0u32; $batch_size];
+
+                        group.throughput(Throughput::Elements($batch_size as u64));
+                        group.bench_function(
+                            BenchmarkId::new($name, concat!(stringify!($bits), "b")),
+                            |bench| {
+                                bench.iter(|| {
+                                    hamming_batch(
+                                        black_box(&source),
+                                        black_box(&targets),
+                                        black_box(&mut out),
+                                    );
+                                    black_box(out[0])
+                                });
+                            },
+                        );
+                    }
+                )+
+            };
+        }
+        bench_batch_api!(64, "hamming_batch_64", 512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+        bench_batch_api!(256, "hamming_batch_256", 512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+
+        group.finish();
+    }
+
+    // ========================================================================
+    // Fixed vs variable batch size (64 elements)
+    // ========================================================================
+    {
+        let mut group = c.benchmark_group("fixed_vs_variable");
+        const BATCH: usize = 64;
+
+        macro_rules! bench_variable {
+            ($($bits:literal => $bytes:literal),+ $(,)?) => {
+                $(
+                    {
+                        let source: [u8; $bytes] = random_bytes();
+                        let targets: Vec<[u8; $bytes]> = random_bytes_array(BATCH);
+                        let mut out = vec![0u32; BATCH];
+
+                        group.throughput(Throughput::Elements(BATCH as u64));
+                        group.bench_function(
+                            BenchmarkId::new("variable", concat!(stringify!($bits), "b")),
+                            |bench| {
+                                bench.iter(|| {
+                                    hamming_batch_variable(
+                                        black_box(&source),
+                                        black_box(&targets),
+                                        black_box(&mut out),
+                                    );
+                                    black_box(out[0])
+                                });
+                            },
+                        );
+                    }
+                )+
+            };
+        }
+        bench_variable!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+
+        macro_rules! bench_fixed {
+            ($($bits:literal => $bytes:literal),+ $(,)?) => {
+                $(
+                    {
+                        let source: [u8; $bytes] = random_bytes();
+                        let targets_vec: Vec<[u8; $bytes]> = random_bytes_array(BATCH);
+                        let targets: [[u8; $bytes]; BATCH] = targets_vec.try_into().unwrap();
+                        let mut out = [0u32; BATCH];
+
+                        group.throughput(Throughput::Elements(BATCH as u64));
+                        group.bench_function(
+                            BenchmarkId::new("fixed", concat!(stringify!($bits), "b")),
+                            |bench| {
+                                bench.iter(|| {
+                                    hamming_batch_fixed(
+                                        black_box(&source),
+                                        black_box(&targets),
+                                        black_box(&mut out),
+                                    );
+                                    black_box(out[0])
+                                });
+                            },
+                        );
+                    }
+                )+
+            };
+        }
+        bench_fixed!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+
+        group.finish();
+    }
+
+    // ========================================================================
+    // Allocation patterns (64 element batches)
+    // ========================================================================
+    {
+        let mut group = c.benchmark_group("allocation");
+        const BATCH: usize = 64;
+
+        macro_rules! bench_alloc {
+            ($($bits:literal => $bytes:literal),+ $(,)?) => {
+                $(
+                    {
+                        let source: [u8; $bytes] = random_bytes();
+                        let targets: Vec<[u8; $bytes]> = random_bytes_array(BATCH);
+
+                        group.throughput(Throughput::Elements(BATCH as u64));
+                        group.bench_function(
+                            BenchmarkId::new("alloc_per_batch", concat!(stringify!($bits), "b")),
+                            |bench| {
+                                bench.iter(|| {
+                                    let mut out = vec![0u32; BATCH];
+                                    hamming_batch(
+                                        black_box(&source),
+                                        black_box(&targets),
+                                        black_box(&mut out),
+                                    );
+                                    black_box(out[0])
+                                });
+                            },
+                        );
+                    }
+                )+
+            };
+        }
+        bench_alloc!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+
+        macro_rules! bench_prealloc {
+            ($($bits:literal => $bytes:literal),+ $(,)?) => {
+                $(
+                    {
+                        let source: [u8; $bytes] = random_bytes();
+                        let targets: Vec<[u8; $bytes]> = random_bytes_array(BATCH);
+                        let mut out = vec![0u32; BATCH];
+
+                        group.throughput(Throughput::Elements(BATCH as u64));
+                        group.bench_function(
+                            BenchmarkId::new("preallocated", concat!(stringify!($bits), "b")),
+                            |bench| {
+                                bench.iter(|| {
+                                    hamming_batch(
+                                        black_box(&source),
+                                        black_box(&targets),
+                                        black_box(&mut out),
+                                    );
+                                    black_box(out[0])
+                                });
+                            },
+                        );
+                    }
+                )+
+            };
+        }
+        bench_prealloc!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+
+        group.finish();
+    }
 }
 
-// ============================================================================
-// Per-comparison time: cycling through targets of different batch sizes
-// Embedding sizes: 8=512bit, 12=768bit, 16=1024bit, 32=2048bit (in u64s)
-// ============================================================================
-
-#[divan::bench_group]
-mod per_comparison {
-    use super::*;
-
-    /// Single pair (no batch context) - baseline
-    #[divan::bench(consts = [8, 12, 16, 32], name = "single_pair")]
-    fn single_pair<const N: usize>(bencher: divan::Bencher) {
-        let a: Embedding<N> = random_embedding();
-        let b: Embedding<N> = random_embedding();
-
-        bencher.bench_local(|| {
-            hamming_bitwise_fast::hamming(divan::black_box(&a), divan::black_box(&b))
-        });
-    }
-
-    /// One comparison from batch of 64 (fits in L1)
-    #[divan::bench(consts = [8, 12, 16, 32], name = "batch_64")]
-    fn from_batch_64<const N: usize>(bencher: divan::Bencher) {
-        let source: Embedding<N> = random_embedding();
-        let targets = random_embeddings::<N>(64);
-        let idx = Cell::new(0usize);
-
-        bencher.bench_local(|| {
-            let i = idx.get();
-            let result = hamming_bitwise_fast::hamming(
-                divan::black_box(&source),
-                divan::black_box(&targets[i]),
-            );
-            idx.set((i + 1) % 64);
-            result
-        });
-    }
-
-    /// One comparison from batch of 256 (fits in L1)
-    #[divan::bench(consts = [8, 12, 16, 32], name = "batch_256")]
-    fn from_batch_256<const N: usize>(bencher: divan::Bencher) {
-        let source: Embedding<N> = random_embedding();
-        let targets = random_embeddings::<N>(256);
-        let idx = Cell::new(0usize);
-
-        bencher.bench_local(|| {
-            let i = idx.get();
-            let result = hamming_bitwise_fast::hamming(
-                divan::black_box(&source),
-                divan::black_box(&targets[i]),
-            );
-            idx.set((i + 1) % 256);
-            result
-        });
-    }
-
-    /// One comparison from batch of 1024 (may spill to L2)
-    #[divan::bench(consts = [8, 12, 16, 32], name = "batch_1024")]
-    fn from_batch_1024<const N: usize>(bencher: divan::Bencher) {
-        let source: Embedding<N> = random_embedding();
-        let targets = random_embeddings::<N>(1024);
-        let idx = Cell::new(0usize);
-
-        bencher.bench_local(|| {
-            let i = idx.get();
-            let result = hamming_bitwise_fast::hamming(
-                divan::black_box(&source),
-                divan::black_box(&targets[i]),
-            );
-            idx.set((i + 1) % 1024);
-            result
-        });
-    }
-}
-
-// ============================================================================
-// Batch API throughput (items/sec shown, divide time by batch_size for per-item)
-// ============================================================================
-
-#[divan::bench_group]
-mod batch_api {
-    use super::*;
-
-    #[divan::bench(consts = [8, 12, 16, 32], name = "batch_64")]
-    fn batch_64<const N: usize>(bencher: divan::Bencher) {
-        let source: Embedding<N> = random_embedding();
-        let targets = random_embeddings::<N>(64);
-        let mut out = vec![0u32; 64];
-
-        bencher
-            .counter(divan::counter::ItemsCount::new(64usize))
-            .bench_local(|| {
-                hamming_batch(
-                    divan::black_box(&source),
-                    divan::black_box(&targets),
-                    &mut out,
-                );
-                divan::black_box(out[0])
-            });
-    }
-
-    #[divan::bench(consts = [8, 12, 16, 32], name = "batch_256")]
-    fn batch_256<const N: usize>(bencher: divan::Bencher) {
-        let source: Embedding<N> = random_embedding();
-        let targets = random_embeddings::<N>(256);
-        let mut out = vec![0u32; 256];
-
-        bencher
-            .counter(divan::counter::ItemsCount::new(256usize))
-            .bench_local(|| {
-                hamming_batch(
-                    divan::black_box(&source),
-                    divan::black_box(&targets),
-                    &mut out,
-                );
-                divan::black_box(out[0])
-            });
-    }
-}
-
-// ============================================================================
-// Fixed vs variable batch size (64 elements)
-// ============================================================================
-
-#[divan::bench_group]
-mod fixed_vs_variable {
-    use super::*;
-
-    const BATCH: usize = 64;
-
-    #[divan::bench(consts = [8, 12, 16, 32], name = "variable")]
-    fn variable<const N: usize>(bencher: divan::Bencher) {
-        let source: Embedding<N> = random_embedding();
-        let targets = random_embeddings::<N>(BATCH);
-        let mut out = vec![0u32; BATCH];
-
-        bencher
-            .counter(divan::counter::ItemsCount::new(BATCH))
-            .bench_local(|| {
-                hamming_batch_variable(
-                    divan::black_box(&source),
-                    divan::black_box(&targets),
-                    &mut out,
-                );
-                divan::black_box(out[0])
-            });
-    }
-
-    #[divan::bench(consts = [8, 12, 16, 32], name = "fixed")]
-    fn fixed<const N: usize>(bencher: divan::Bencher) {
-        let source: Embedding<N> = random_embedding();
-        let targets_vec = random_embeddings::<N>(BATCH);
-        let targets: [Embedding<N>; BATCH] = targets_vec.try_into().unwrap();
-        let mut out = [0u32; BATCH];
-
-        bencher
-            .counter(divan::counter::ItemsCount::new(BATCH))
-            .bench_local(|| {
-                hamming_batch_fixed(
-                    divan::black_box(&source),
-                    divan::black_box(&targets),
-                    &mut out,
-                );
-                divan::black_box(out[0])
-            });
-    }
-}
-
-// ============================================================================
-// Allocation patterns (64 element batches)
-// ============================================================================
-
-#[divan::bench_group]
-mod allocation {
-    use super::*;
-
-    const BATCH: usize = 64;
-
-    #[divan::bench(consts = [8, 12, 16, 32], name = "alloc_per_batch")]
-    fn alloc_per_batch<const N: usize>(bencher: divan::Bencher) {
-        let source: Embedding<N> = random_embedding();
-        let targets = random_embeddings::<N>(BATCH);
-
-        bencher
-            .counter(divan::counter::ItemsCount::new(BATCH))
-            .bench_local(|| {
-                let mut out = vec![0u32; BATCH];
-                hamming_batch(
-                    divan::black_box(&source),
-                    divan::black_box(&targets),
-                    &mut out,
-                );
-                divan::black_box(out[0])
-            });
-    }
-
-    #[divan::bench(consts = [8, 12, 16, 32], name = "preallocated")]
-    fn preallocated<const N: usize>(bencher: divan::Bencher) {
-        let source: Embedding<N> = random_embedding();
-        let targets = random_embeddings::<N>(BATCH);
-        let mut out = vec![0u32; BATCH];
-
-        bencher
-            .counter(divan::counter::ItemsCount::new(BATCH))
-            .bench_local(|| {
-                hamming_batch(
-                    divan::black_box(&source),
-                    divan::black_box(&targets),
-                    &mut out,
-                );
-                divan::black_box(out[0])
-            });
-    }
-}
+criterion_group!(benches, batching_benchmarks);
+criterion_main!(benches);

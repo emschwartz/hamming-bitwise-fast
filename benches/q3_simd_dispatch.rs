@@ -3,7 +3,7 @@
 //! Key questions:
 //! - On ARM: NEON is great, but is it used by default?
 //! - On x86: vectorized POPCNT (AVX-512 VPOPCNT) is massive - how to enable it?
-//! - Which dispatch strategy works best: multiversion, pulp, or RUSTFLAGS?
+//! - Which dispatch strategy works best: multiversion or RUSTFLAGS?
 //!
 //! How to test different compiler optimizations:
 //! ```sh
@@ -21,98 +21,101 @@
 
 mod helpers;
 
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use hamming_bitwise_fast::hamming;
 use helpers::*;
 
-fn main() {
-    divan::main();
-}
+fn simd_dispatch(c: &mut Criterion) {
+    let mut group = c.benchmark_group("simd_dispatch");
 
-// ============================================================================
-// Auto-vectorized (baseline): What the compiler does by default
-// This is affected by RUSTFLAGS="-C target-cpu=native"
-// ============================================================================
+    // ========================================================================
+    // Auto-vectorized (baseline): What the compiler does by default
+    // This is affected by RUSTFLAGS="-C target-cpu=native"
+    // ========================================================================
+    macro_rules! bench_u8_iter {
+        ($($bits:literal => $bytes:literal),+ $(,)?) => {
+            $(
+                {
+                    let a: [u8; $bytes] = random_bytes();
+                    let b: [u8; $bytes] = random_bytes();
+                    group.bench_function(
+                        BenchmarkId::new("auto_u8_iter", concat!(stringify!($bits), "b")),
+                        |bench| {
+                            bench.iter(|| hamming_u8_iter(black_box(&a), black_box(&b)));
+                        },
+                    );
+                }
+            )+
+        };
+    }
+    bench_u8_iter!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
 
-#[divan::bench_group]
-mod auto_vectorized {
-    use super::*;
+    macro_rules! bench_u8_chunks {
+        ($($bits:literal => $bytes:literal),+ $(,)?) => {
+            $(
+                {
+                    let a: [u8; $bytes] = random_bytes();
+                    let b: [u8; $bytes] = random_bytes();
+                    group.bench_function(
+                        BenchmarkId::new("auto_u8_chunks", concat!(stringify!($bits), "b")),
+                        |bench| {
+                            bench.iter(|| hamming_u8_chunks(black_box(&a), black_box(&b)));
+                        },
+                    );
+                }
+            )+
+        };
+    }
+    bench_u8_chunks!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
 
-    #[divan::bench(consts = [8, 12, 16, 32])]
-    fn u64_iter<const N: usize>(bencher: divan::Bencher) {
-        let a: Embedding<N> = random_embedding();
-        let b: Embedding<N> = random_embedding();
-
-        bencher.bench_local(|| {
-            hamming_u64_iter(divan::black_box(&a), divan::black_box(&b))
-        });
+    // ========================================================================
+    // Multiversion: Runtime CPU feature detection via the multiversion crate
+    // Only active when compiled with --features multiversion
+    // ========================================================================
+    #[cfg(feature = "multiversion")]
+    {
+        macro_rules! bench_multiversion {
+            ($($bits:literal => $bytes:literal),+ $(,)?) => {
+                $(
+                    {
+                        let a: [u8; $bytes] = random_bytes();
+                        let b: [u8; $bytes] = random_bytes();
+                        group.bench_function(
+                            BenchmarkId::new("multiversion", concat!(stringify!($bits), "b")),
+                            |bench| {
+                                bench.iter(|| hamming_multiversion(black_box(&a), black_box(&b)));
+                            },
+                        );
+                    }
+                )+
+            };
+        }
+        bench_multiversion!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
     }
 
-    #[divan::bench(consts = [64, 96, 128, 256])]
-    fn u8_iter<const N: usize>(bencher: divan::Bencher) {
-        let a: [u8; N] = random_bytes();
-        let b: [u8; N] = random_bytes();
-
-        bencher.bench_local(|| {
-            hamming_u8_iter(divan::black_box(&a), divan::black_box(&b))
-        });
+    // ========================================================================
+    // Library's hamming<N> function: Uses internal platform-specific optimization
+    // ========================================================================
+    macro_rules! bench_library {
+        ($($bits:literal => $bytes:literal),+ $(,)?) => {
+            $(
+                {
+                    let a: [u8; $bytes] = random_bytes();
+                    let b: [u8; $bytes] = random_bytes();
+                    group.bench_function(
+                        BenchmarkId::new("library_hamming", concat!(stringify!($bits), "b")),
+                        |bench| {
+                            bench.iter(|| hamming(black_box(&a), black_box(&b)));
+                        },
+                    );
+                }
+            )+
+        };
     }
+    bench_library!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
+
+    group.finish();
 }
 
-// ============================================================================
-// Multiversion: Runtime CPU feature detection via the multiversion crate
-// Only active when compiled with --features multiversion
-// ============================================================================
-
-#[cfg(feature = "multiversion")]
-#[divan::bench_group]
-mod multiversion_dispatch {
-    use super::*;
-
-    #[divan::bench(consts = [8, 12, 16, 32])]
-    fn u64<const N: usize>(bencher: divan::Bencher) {
-        let a: Embedding<N> = random_embedding();
-        let b: Embedding<N> = random_embedding();
-
-        bencher.bench_local(|| {
-            hamming_multiversion(divan::black_box(&a), divan::black_box(&b))
-        });
-    }
-}
-
-// ============================================================================
-// Pulp: Portable SIMD via the pulp crate
-// This uses runtime detection but different dispatch mechanism than multiversion
-// ============================================================================
-
-#[divan::bench_group]
-mod pulp_dispatch {
-    use super::*;
-
-    #[divan::bench(consts = [8, 12, 16, 32])]
-    fn u64<const N: usize>(bencher: divan::Bencher) {
-        let a: Embedding<N> = random_embedding();
-        let b: Embedding<N> = random_embedding();
-
-        bencher.bench_local(|| {
-            hamming_pulp(divan::black_box(&a), divan::black_box(&b))
-        });
-    }
-}
-
-// ============================================================================
-// Library's hamming<N> function: Uses internal platform-specific optimization
-// ============================================================================
-
-#[divan::bench_group]
-mod library {
-    use super::*;
-
-    #[divan::bench(consts = [8, 12, 16, 32])]
-    fn hamming<const N: usize>(bencher: divan::Bencher) {
-        let a: Embedding<N> = random_embedding();
-        let b: Embedding<N> = random_embedding();
-
-        bencher.bench_local(|| {
-            hamming_bitwise_fast::hamming(divan::black_box(&a), divan::black_box(&b))
-        });
-    }
-}
+criterion_group!(benches, simd_dispatch);
+criterion_main!(benches);

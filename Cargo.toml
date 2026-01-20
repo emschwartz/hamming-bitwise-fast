@@ -18,14 +18,11 @@ no-unsafe = []
 multiversion = { version = "0.7", optional = true }
 
 [dev-dependencies]
-divan = "0.1"
-hex = "0.4.3"
-bitarray = "0.10.0"
+criterion = { version = "0.5", features = ["html_reports"] }
 hamming = "0.1.3"
 simsimd = "6.2.1"
 triple_accel = "0.4"
 rand = "0.8"
-pulp = "0.18"
 
 [target.'cfg(target_arch = "x86")'.dev-dependencies]
 hamming_rs = "0.2.22"
