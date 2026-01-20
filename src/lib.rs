@@ -34,9 +34,9 @@
 //!
 //! # Feature Flags
 //!
-//! - `multiversion`: Enables runtime CPU dispatch for optimal SIMD on x86.
-//!   Recommended for x86 deployments. On ARM, auto-vectorization is already
-//!   near-optimal, so this adds minimal benefit.
+//! - `multiversion_x86`: Enables runtime CPU dispatch for optimal SIMD on x86.
+//!   Recommended for x86 deployments. On ARM and other non-x86 platforms,
+//!   this feature has no effect (auto-vectorization is already near-optimal).
 
 /// Calculate the bitwise Hamming distance between two byte slices.
 ///
@@ -94,7 +94,7 @@ pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
 /// # Performance
 ///
 /// - On ARM (M2, Graviton): Uses NEON byte-level operations (~2ns for 1024-bit)
-/// - On x86 with `multiversion`: Uses AVX-512 VPOPCNTDQ when available (~1-2ns)
+/// - On x86 with `multiversion_x86`: Uses AVX-512 VPOPCNTDQ when available (~1-2ns)
 /// - On x86 without features: Uses chunked u64 processing (~8ns for 1024-bit)
 ///
 /// # Example
@@ -107,7 +107,10 @@ pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
 /// let b: [u8; 128] = [0xFE; 128];
 /// let distance = hamming(&a, &b);
 /// ```
-#[cfg(feature = "multiversion")]
+#[cfg(all(
+    feature = "multiversion_x86",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
 #[multiversion::multiversion(targets(
     "x86_64+avx512vpopcntdq+avx512vl",
     "x86_64+avx512bw+avx512vl",
@@ -122,7 +125,10 @@ pub fn hamming<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
 }
 
 /// Compute Hamming distance for fixed-size byte arrays (non-multiversion).
-#[cfg(not(feature = "multiversion"))]
+#[cfg(not(all(
+    feature = "multiversion_x86",
+    any(target_arch = "x86", target_arch = "x86_64")
+)))]
 #[inline]
 pub fn hamming<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     hamming_inner(a, b)
@@ -182,7 +188,7 @@ fn hamming_inner<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
 /// This is significantly faster than calling [`hamming`] in a loop because:
 /// 1. The function call overhead is amortized across all comparisons
 /// 2. The source embedding can stay in registers
-/// 3. With `multiversion`, the CPU dispatch happens once for all comparisons
+/// 3. With `multiversion_x86`, the CPU dispatch happens once for all comparisons
 ///
 /// # Arguments
 ///
@@ -205,7 +211,10 @@ fn hamming_inner<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
 ///
 /// hamming_batch(&source, &targets, &mut distances);
 /// ```
-#[cfg(feature = "multiversion")]
+#[cfg(all(
+    feature = "multiversion_x86",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
 #[multiversion::multiversion(targets(
     "x86_64+avx512vpopcntdq+avx512vl",
     "x86_64+avx512bw+avx512vl",
@@ -219,7 +228,10 @@ pub fn hamming_batch<const N: usize>(source: &[u8; N], targets: &[[u8; N]], out:
 }
 
 /// Compute Hamming distance from one source to many targets (non-multiversion).
-#[cfg(not(feature = "multiversion"))]
+#[cfg(not(all(
+    feature = "multiversion_x86",
+    any(target_arch = "x86", target_arch = "x86_64")
+)))]
 pub fn hamming_batch<const N: usize>(source: &[u8; N], targets: &[[u8; N]], out: &mut [u32]) {
     hamming_batch_inner(source, targets, out)
 }

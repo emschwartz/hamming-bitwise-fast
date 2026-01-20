@@ -10,7 +10,7 @@ documentation = "https://docs.rs/hamming-bitwise-fast"
 
 [features]
 default = []
-multiversion = ["dep:multiversion"]
+multiversion_x86 = ["dep:multiversion"]
 # Disables ARM-specific zero-cost cast optimization for pure safe Rust
 no-unsafe = []
 

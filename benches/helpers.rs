@@ -171,7 +171,7 @@ pub fn hamming_slice_u64_chunks(a: &[u8], b: &[u8]) -> u32 {
 // Multiversion implementations (for Q3: SIMD dispatch)
 // ============================================================================
 
-#[cfg(feature = "multiversion")]
+#[cfg(feature = "multiversion_x86")]
 #[multiversion::multiversion(targets(
     "x86_64+avx512vpopcntdq+avx512vl",
     "x86_64+avx512bw+avx512vl",

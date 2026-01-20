@@ -70,9 +70,9 @@ fn simd_dispatch(c: &mut Criterion) {
 
     // ========================================================================
     // Multiversion: Runtime CPU feature detection via the multiversion crate
-    // Only active when compiled with --features multiversion
+    // Only active when compiled with --features multiversion_x86
     // ========================================================================
-    #[cfg(feature = "multiversion")]
+    #[cfg(feature = "multiversion_x86")]
     {
         macro_rules! bench_multiversion {
             ($($bits:literal => $bytes:literal),+ $(,)?) => {
