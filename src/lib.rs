@@ -134,55 +134,6 @@ pub fn hamming<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     hamming_inner(a, b)
 }
 
-/// Internal implementation that selects the optimal strategy per platform.
-#[inline]
-fn hamming_inner<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
-    // On x86: use chunks_exact(8) to process as u64 (enables AVX-512 VPOPCNTDQ)
-    // The remainder handling is written so the compiler can optimize it away
-    // when N is a compile-time constant that's a multiple of 8.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    {
-        let chunks_distance: u32 = a
-            .chunks_exact(8)
-            .zip(b.chunks_exact(8))
-            .map(|(a_chunk, b_chunk)| {
-                let a_val = u64::from_ne_bytes(a_chunk.try_into().unwrap());
-                let b_val = u64::from_ne_bytes(b_chunk.try_into().unwrap());
-                (a_val ^ b_val).count_ones()
-            })
-            .sum();
-
-        // Handle remainder bytes by packing into a u64 for a single popcount.
-        // Compiler optimizes this away when N % 8 == 0.
-        let remainder_distance = if N % 8 != 0 {
-            let rem_start = (N / 8) * 8;
-            let a_rem = &a[rem_start..];
-            let b_rem = &b[rem_start..];
-            let mut a_val = 0u64;
-            let mut b_val = 0u64;
-            for (i, (&a_byte, &b_byte)) in a_rem.iter().zip(b_rem).enumerate() {
-                a_val |= (a_byte as u64) << (i * 8);
-                b_val |= (b_byte as u64) << (i * 8);
-            }
-            (a_val ^ b_val).count_ones()
-        } else {
-            0
-        };
-
-        chunks_distance + remainder_distance
-    }
-
-    // On ARM and other architectures: byte-by-byte iteration
-    // (NEON handles this efficiently, and it's a safe default for unknown archs)
-    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-    {
-        a.iter()
-            .zip(b.iter())
-            .map(|(x, y)| (x ^ y).count_ones())
-            .sum()
-    }
-}
-
 /// Compute Hamming distance from one source embedding to many targets.
 ///
 /// This is significantly faster than calling [`hamming`] in a loop because:
@@ -234,6 +185,55 @@ pub fn hamming_batch<const N: usize>(source: &[u8; N], targets: &[[u8; N]], out:
 )))]
 pub fn hamming_batch<const N: usize>(source: &[u8; N], targets: &[[u8; N]], out: &mut [u32]) {
     hamming_batch_inner(source, targets, out)
+}
+
+/// Internal implementation that selects the optimal strategy per platform.
+#[inline]
+fn hamming_inner<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
+    // On x86: use chunks_exact(8) to process as u64 (enables AVX-512 VPOPCNTDQ)
+    // The remainder handling is written so the compiler can optimize it away
+    // when N is a compile-time constant that's a multiple of 8.
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        let chunks_distance: u32 = a
+            .chunks_exact(8)
+            .zip(b.chunks_exact(8))
+            .map(|(a_chunk, b_chunk)| {
+                let a_val = u64::from_ne_bytes(a_chunk.try_into().unwrap());
+                let b_val = u64::from_ne_bytes(b_chunk.try_into().unwrap());
+                (a_val ^ b_val).count_ones()
+            })
+            .sum();
+
+        // Handle remainder bytes by packing into a u64 for a single popcount.
+        // Compiler optimizes this away when N % 8 == 0.
+        let remainder_distance = if N % 8 != 0 {
+            let rem_start = (N / 8) * 8;
+            let a_rem = &a[rem_start..];
+            let b_rem = &b[rem_start..];
+            let mut a_val = 0u64;
+            let mut b_val = 0u64;
+            for (i, (&a_byte, &b_byte)) in a_rem.iter().zip(b_rem).enumerate() {
+                a_val |= (a_byte as u64) << (i * 8);
+                b_val |= (b_byte as u64) << (i * 8);
+            }
+            (a_val ^ b_val).count_ones()
+        } else {
+            0
+        };
+
+        chunks_distance + remainder_distance
+    }
+
+    // On ARM and other architectures: byte-by-byte iteration
+    // (NEON handles this efficiently, and it's a safe default for unknown archs)
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+    {
+        a.iter()
+            .zip(b.iter())
+            .map(|(x, y)| (x ^ y).count_ones())
+            .sum()
+    }
 }
 
 /// Internal batch implementation.
