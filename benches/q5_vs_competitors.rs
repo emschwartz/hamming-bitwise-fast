@@ -11,7 +11,9 @@
 mod helpers;
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use hamming_bitwise_fast::{hamming_bitwise_array, hamming_bitwise_array_batch, hamming_bitwise_slice};
+use hamming_bitwise_fast::{
+    hamming_bitwise_array, hamming_bitwise_array_batch, hamming_bitwise_slice,
+};
 use helpers::*;
 
 // ============================================================================
@@ -212,9 +214,8 @@ fn batch_comparison(c: &mut Criterion) {
                 |b, _| {
                     b.iter(|| {
                         for (i, target) in targets.iter().enumerate() {
-                            out[i] =
-                                hamming::distance_fast(black_box(&source), black_box(target))
-                                    .unwrap_or(0);
+                            out[i] = hamming::distance_fast(black_box(&source), black_box(target))
+                                .unwrap_or(0);
                         }
                         black_box(out[0])
                     });
@@ -226,19 +227,14 @@ fn batch_comparison(c: &mut Criterion) {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
             let mut out = vec![0u64; BATCH];
-            group.bench_with_input(
-                BenchmarkId::new("hamming_rs_loop", size),
-                &size,
-                |b, _| {
-                    b.iter(|| {
-                        for (i, target) in targets.iter().enumerate() {
-                            out[i] =
-                                hamming_rs::distance_faster(black_box(&source), black_box(target));
-                        }
-                        black_box(out[0])
-                    });
-                },
-            );
+            group.bench_with_input(BenchmarkId::new("hamming_rs_loop", size), &size, |b, _| {
+                b.iter(|| {
+                    for (i, target) in targets.iter().enumerate() {
+                        out[i] = hamming_rs::distance_faster(black_box(&source), black_box(target));
+                    }
+                    black_box(out[0])
+                });
+            });
         }
     }
 

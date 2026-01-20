@@ -11,9 +11,7 @@
 
 mod helpers;
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use hamming_bitwise_fast::{hamming_bitwise_array, hamming_bitwise_array_batch};
 use helpers::*;
 use std::cell::Cell;
