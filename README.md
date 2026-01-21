@@ -1,6 +1,6 @@
 # Hamming Bitwise Fast
 
-> A fast, zero-dependency implementation of bitwise Hamming Distance using
+> A fast, zero-dependency\* implementation of bitwise Hamming Distance using
 > a method amenable to auto-vectorization.
 
 This started out as a benchmark of various bitwise Hamming distance implementations in Rust.
@@ -8,6 +8,8 @@ However, after finding that a simple implementation that is amenable to auto-vec
 was comparable, if not faster, than other implementations, I decided to publish it as a crate.
 
 **Note:** This is for comparing bit-vectors, _not_ for comparing strings.
+
+_\* Zero dependencies by default. The optional `multiversion_x86` feature adds the [`multiversion`](https://crates.io/crates/multiversion) crate for runtime CPU detection on x86. See [SIMD on x86](#simd-on-x86) for details._
 
 ## Usage
 
@@ -47,86 +49,118 @@ assert_eq!(distances, vec![1024, 0]);
 | `hamming_bitwise_slice` | Variable-length or large (≥256 byte) data | Simpler API; performance matches array at large sizes |
 | `hamming_bitwise_array_batch` | One-to-many comparisons | Amortizes function call overhead |
 
-**x86 performance options:**
+## SIMD on x86
+
+> **TL;DR:** On x86, enable the `multiversion_x86` feature for best performance:
+> ```sh
+> cargo add hamming-bitwise-fast --features multiversion_x86
+> ```
+
+### The Problem
+
+Rust targets the baseline [x86-64 microarchitecture level](https://en.wikipedia.org/wiki/X86-64#Microarchitecture_levels) (v1) by default, which only includes SSE2. This ensures binaries run on any x86-64 CPU made since 2003, but misses major SIMD improvements that can make Hamming distance **4-5x faster**:
+
+| Level | Year | Key Features |
+|-------|------|--------------|
+| x86-64-v1 | 2003 | SSE2 (baseline) |
+| x86-64-v2 | 2008 | SSE4.2, POPCNT |
+| x86-64-v3 | 2013 | AVX2, BMI1/2 |
+| x86-64-v4 | 2017 | AVX-512, VPOPCNTDQ |
+
+### The Solution: `multiversion_x86`
+
+The `multiversion_x86` feature uses the [`multiversion`](https://crates.io/crates/multiversion) crate to compile multiple code paths and select the fastest one at runtime via CPUID:
+
+```toml
+[dependencies]
+hamming-bitwise-fast = { version = "1", features = ["multiversion_x86"] }
+```
+
+This gives near-optimal performance on any x86 CPU without risking "illegal instruction" crashes.
+
+### Alternative: Compile-time CPU targeting
+
+If you know your target CPU, you can use `RUSTFLAGS` for slightly better performance (no runtime dispatch overhead):
+
+```sh
+# Best performance, but binary only runs on identical CPUs
+RUSTFLAGS="-C target-cpu=native" cargo build --release
+
+# Requires AVX2 (2013+ CPUs)
+RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release
+
+# Requires AVX-512 (2017+ server CPUs, 2019+ consumer CPUs)
+RUSTFLAGS="-C target-cpu=x86-64-v4" cargo build --release
+```
+
+### Performance comparison
 
 | Option | Speed (1024-bit) | Trade-off |
 |--------|------------------|-----------|
-| Default (`cargo build --release`) | ~9ns | Maximum portability, but slow |
-| `multiversion_x86` feature | ~4ns | Fast on any x86 CPU (runtime detection) |
-| `-C target-cpu=native` | ~2ns | Fastest, but binary only runs on identical CPUs |
-| `-C target-cpu=x86-64-v3` | ~3ns | Requires AVX2 (2013+ CPUs) |
-| `-C target-cpu=x86-64-v4` | ~2ns | Requires AVX-512 (2017+ CPUs) |
+| Default | ~9ns | Maximum portability, but slow |
+| `multiversion_x86` feature | ~4ns | Fast on any x86 CPU (recommended) |
+| `-C target-cpu=native` | ~2ns | Fastest, but binary only runs on build machine |
 
-### Why is the default so slow?
-
-Rust targets the baseline [x86-64 microarchitecture level](https://en.wikipedia.org/wiki/X86-64#Microarchitecture_levels) (v1) by default, which only includes SSE2. This ensures binaries run on any x86-64 CPU made since 2003, but misses major SIMD improvements:
-
-- **x86-64-v2** (2008+): SSE4.2, POPCNT
-- **x86-64-v3** (2013+): AVX2, BMI1/2
-- **x86-64-v4** (2017+): AVX-512
-
-You can target a specific level with `-C target-cpu=x86-64-v3`, but the binary will crash with an "illegal instruction" error on older CPUs that lack those features.
-
-**For Docker/cloud deployments**, the `multiversion_x86` feature is recommended—it compiles multiple code paths and selects the fastest one at runtime via CPUID, giving near-optimal performance on any x86 CPU without risking illegal instruction errors.
+**For Docker/cloud deployments**, `multiversion_x86` is strongly recommended—it automatically uses AVX-512 on modern cloud instances while remaining compatible with older hardware.
 
 ## Benchmarks
 
-This uses [Criterion](https://github.com/bheisler/criterion.rs) to benchmark various Hamming distance implementations:
-
-- The auto-vectorized implementation in this crate
-- A naive for-loop based implementation
-- A naive iterator based implementation
-- [`hamming`](https://crates.io/crates/hamming) ![hamming](https://img.shields.io/crates/d/hamming)
-- [`hamming_rs`](https://crates.io/crates/hamming_rs) ![hamming_rs](https://img.shields.io/crates/d/hamming_rs)
+Comparing `hamming_bitwise_array`, `hamming_bitwise_slice`, and batch APIs against competitor crates:
 - [`simsimd`](https://crates.io/crates/simsimd) ![simsimd](https://img.shields.io/crates/d/simsimd)
+- [`hamming`](https://crates.io/crates/hamming) ![hamming](https://img.shields.io/crates/d/hamming)
+- [`triple_accel`](https://crates.io/crates/triple_accel) ![triple_accel](https://img.shields.io/crates/d/triple_accel)
+- [`hamming_rs`](https://crates.io/crates/hamming_rs) ![hamming_rs](https://img.shields.io/crates/d/hamming_rs) (x86 only)
 
-### Running the benchmark
+### Single Comparison
+
+#### MacBook Pro M2 Max (ARM)
+
+##### 1024-bit
+![Single 1024b - MacBook](results/violin-single-macbook-1024b.svg)
+
+##### 2048-bit
+![Single 2048b - MacBook](results/violin-single-macbook-2048b.svg)
+
+#### Linode x86 (with `multiversion_x86` feature)
+
+##### 1024-bit
+![Single 1024b - Linode multiversion](results/violin-single-linode-multiversion-1024b.svg)
+
+##### 2048-bit
+![Single 2048b - Linode multiversion](results/violin-single-linode-multiversion-2048b.svg)
+
+### Batch Comparison (1000 comparisons, divide time by 1000)
+
+#### MacBook Pro M2 Max (ARM)
+
+##### 1024-bit
+![Batch 1024b - MacBook](results/violin-batch-macbook-1024b.svg)
+
+##### 2048-bit
+![Batch 2048b - MacBook](results/violin-batch-macbook-2048b.svg)
+
+#### Linode x86 (with `multiversion_x86` feature)
+
+##### 1024-bit
+![Batch 1024b - Linode multiversion](results/violin-batch-linode-multiversion-1024b.svg)
+
+##### 2048-bit
+![Batch 2048b - Linode multiversion](results/violin-batch-linode-multiversion-2048b.svg)
+
+### Running benchmarks
 
 ```sh
+# Run all benchmarks
 cargo bench
+
+# Run only 1024b and 2048b competitor benchmarks
+cargo bench --bench q5_vs_competitors -- "1024b|2048b"
+
+# With multiversion (x86 only)
+cargo bench --features multiversion_x86 --bench q5_vs_competitors -- "1024b|2048b"
 ```
 
-Then open the `target/criterion/report/index.html` file in your browser to view the results.
-
-### Results
-
-#### Single Pair Comparison (Linode 2 CPU 4GB, AVX-512)
-
-Comparing `hamming_bitwise_array` and `hamming_bitwise_slice` against competitor crates:
-
-![Single pair benchmark](results/violin-single-linode-avx512.svg)
-
-#### Batch Comparison (64 targets, Linode 2 CPU 4GB, AVX-512)
-
-Comparing batch operations against looping over individual calls:
-
-![Batch benchmark](results/violin-batch-linode-avx512.svg)
-
-#### Historical Results (older benchmarks)
-
-<details>
-<summary>2023 MacBook Pro M2 Max</summary>
-
-![Benchmark results](results/line-chart-macbook.svg)
-![Benchmark results](results/violin-chart-macbook.svg)
-
-</details>
-
-<details>
-<summary>Linode 2 CPU 4GB</summary>
-
-![Benchmark results](results/line-chart-linode.svg)
-![Benchmark results](results/violin-chart-linode.svg)
-
-</details>
-
-<details>
-<summary>Fly.io 2 CPU 4GB</summary>
-
-![Benchmark results](results/line-chart-fly.svg)
-![Benchmark results](results/violin-chart-fly.svg)
-
-</details>
+Then open `target/criterion/report/index.html` to view the results
 
 ## License
 
