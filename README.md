@@ -113,6 +113,7 @@ RUSTFLAGS="-C target-cpu=x86-64-v4 -C target-feature=+avx512vpopcntdq" cargo bui
 |--------|------------------|
 | Default (no SIMD) | ~10ns |
 | `multiversion_x86` feature | ~3-4ns |
+| `multiversion_x86` + `_array_batch` | ~0.8ns per comparison |
 
 **For Docker/cloud deployments**, `multiversion_x86` is strongly recommended—it automatically uses AVX-512 on modern cloud instances while remaining compatible with older hardware.
 
