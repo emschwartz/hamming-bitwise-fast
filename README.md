@@ -47,14 +47,12 @@ let mut distances: Vec<u32> = vec![0; 2];
 hamming_bitwise_array_batch(&source, &targets, &mut distances); // [1024, 0]
 ```
 
-## Performance
+## API
 
-| Function | Best for | Why |
-|----------|----------|-----|
-| `hamming_bitwise_array` | Fixed-size embeddings < 256 bytes | Compile-time size enables loop unrolling |
-| `hamming_bitwise_slice` | Variable-length or large (≥256 byte) data | Simpler API; performance matches array at large sizes |
-| `hamming_bitwise_array_batch` | One-to-many array comparisons | Amortizes function call overhead |
-| `hamming_bitwise_slice_batch` | One-to-many slice comparisons | Amortizes function call overhead |
+The crate exports 4 functions:
+
+- `hamming_bitwise_slice` / `hamming_bitwise_array` - single comparisons for slices and fixed-size arrays
+- `hamming_bitwise_slice_batch` / `hamming_bitwise_array_batch` - batch comparisons (one source vs many targets)
 
 ## SIMD on x86
 
@@ -146,6 +144,8 @@ Comparing `hamming_bitwise_array`, `hamming_bitwise_slice`, and batch APIs again
 ![Single 2048b - Linode multiversion](results/violin-single-linode-multiversion-2048b.svg)
 
 ### Batch Comparison (1000 comparisons, divide time by 1000)
+
+Compares our batch API (`_batch` suffix) against running single comparisons in a loop (`_loop` suffix).
 
 #### MacBook Pro M2 Max (ARM)
 
