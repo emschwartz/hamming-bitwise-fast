@@ -23,6 +23,7 @@ let b: Vec<u8> = vec![0x00; 128];
 let distance: u32 = hamming_bitwise_slice(&a, &b); // 1024
 
 // Batch comparison (one source vs many targets)
+// Pre-allocate result vec once and reuse across calls for best performance
 let source: Vec<u8> = vec![0x00; 128];
 let targets: Vec<&[u8]> = vec![&a, &b];
 let mut distances: Vec<u32> = vec![0; 2];
@@ -39,6 +40,7 @@ let b: [u8; 128] = [0x00; 128];
 let distance: u32 = hamming_bitwise_array(&a, &b); // 1024
 
 // Batch comparison (one source vs many targets)
+// Pre-allocate result vec once and reuse across calls for best performance
 let source: [u8; 128] = [0x00; 128];
 let targets: Vec<[u8; 128]> = vec![a, b];
 let mut distances: Vec<u32> = vec![0; 2];
