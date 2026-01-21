@@ -89,8 +89,8 @@
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 #[multiversion::multiversion(targets(
-    "x86_64+avx512vpopcntdq+avx512vl",
-    "x86_64+avx512bw+avx512vl",
+    "x86_64+avx512vpopcntdq+avx512vl+popcnt",
+    "x86_64+avx512bw+avx512vl+popcnt",
     "x86_64+avx2+popcnt",
     "x86_64+sse4.2+popcnt",
     "x86+avx2+popcnt",
@@ -98,7 +98,23 @@
 ))]
 #[inline]
 pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
-    hamming_slice_chunks(a, b)
+    assert_eq!(a.len(), b.len());
+    let a_chunks = a.chunks_exact(8);
+    let b_chunks = b.chunks_exact(8);
+
+    let main: u32 = a_chunks.clone().zip(b_chunks.clone())
+        .map(|(a, b)| {
+            let a = u64::from_ne_bytes(a.try_into().unwrap());
+            let b = u64::from_ne_bytes(b.try_into().unwrap());
+            (a ^ b).count_ones()
+        })
+        .sum();
+
+    let rem: u32 = a_chunks.remainder().iter().zip(b_chunks.remainder())
+        .map(|(a, b)| (a ^ b).count_ones())
+        .sum();
+
+    main + rem
 }
 
 /// Calculate the bitwise Hamming distance between two byte slices.
@@ -126,7 +142,23 @@ pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
 ))]
 #[inline]
 pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
-    hamming_slice_chunks(a, b)
+    assert_eq!(a.len(), b.len());
+    let a_chunks = a.chunks_exact(8);
+    let b_chunks = b.chunks_exact(8);
+
+    let main: u32 = a_chunks.clone().zip(b_chunks.clone())
+        .map(|(a, b)| {
+            let a = u64::from_ne_bytes(a.try_into().unwrap());
+            let b = u64::from_ne_bytes(b.try_into().unwrap());
+            (a ^ b).count_ones()
+        })
+        .sum();
+
+    let rem: u32 = a_chunks.remainder().iter().zip(b_chunks.remainder())
+        .map(|(a, b)| (a ^ b).count_ones())
+        .sum();
+
+    main + rem
 }
 
 /// Calculate the bitwise Hamming distance between two byte slices.
@@ -194,8 +226,8 @@ pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 #[multiversion::multiversion(targets(
-    "x86_64+avx512vpopcntdq+avx512vl",
-    "x86_64+avx512bw+avx512vl",
+    "x86_64+avx512vpopcntdq+avx512vl+popcnt",
+    "x86_64+avx512bw+avx512vl+popcnt",
     "x86_64+avx2+popcnt",
     "x86_64+sse4.2+popcnt",
     "x86+avx2+popcnt",
@@ -203,7 +235,22 @@ pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
 ))]
 #[inline]
 pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
-    hamming_array_chunks(a, b)
+    let a_chunks = a.chunks_exact(8);
+    let b_chunks = b.chunks_exact(8);
+
+    let main: u32 = a_chunks.clone().zip(b_chunks.clone())
+        .map(|(a, b)| {
+            let a = u64::from_ne_bytes(a.try_into().unwrap());
+            let b = u64::from_ne_bytes(b.try_into().unwrap());
+            (a ^ b).count_ones()
+        })
+        .sum();
+
+    let rem: u32 = a_chunks.remainder().iter().zip(b_chunks.remainder())
+        .map(|(a, b)| (a ^ b).count_ones())
+        .sum();
+
+    main + rem
 }
 
 /// Compute Hamming distance for fixed-size byte arrays.
@@ -243,7 +290,22 @@ pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
 ))]
 #[inline]
 pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
-    hamming_array_chunks(a, b)
+    let a_chunks = a.chunks_exact(8);
+    let b_chunks = b.chunks_exact(8);
+
+    let main: u32 = a_chunks.clone().zip(b_chunks.clone())
+        .map(|(a, b)| {
+            let a = u64::from_ne_bytes(a.try_into().unwrap());
+            let b = u64::from_ne_bytes(b.try_into().unwrap());
+            (a ^ b).count_ones()
+        })
+        .sum();
+
+    let rem: u32 = a_chunks.remainder().iter().zip(b_chunks.remainder())
+        .map(|(a, b)| (a ^ b).count_ones())
+        .sum();
+
+    main + rem
 }
 
 /// Compute Hamming distance for fixed-size byte arrays.
@@ -323,8 +385,8 @@ pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 #[multiversion::multiversion(targets(
-    "x86_64+avx512vpopcntdq+avx512vl",
-    "x86_64+avx512bw+avx512vl",
+    "x86_64+avx512vpopcntdq+avx512vl+popcnt",
+    "x86_64+avx512bw+avx512vl+popcnt",
     "x86_64+avx2+popcnt",
     "x86_64+sse4.2+popcnt",
     "x86+avx2+popcnt",
@@ -335,7 +397,26 @@ pub fn hamming_bitwise_array_batch<const N: usize>(
     targets: &[[u8; N]],
     out: &mut [u32],
 ) {
-    hamming_batch_array_chunks(source, targets, out)
+    assert_eq!(targets.len(), out.len());
+
+    for (target, dist) in targets.iter().zip(out.iter_mut()) {
+        let a_chunks = source.chunks_exact(8);
+        let b_chunks = target.chunks_exact(8);
+
+        let main: u32 = a_chunks.clone().zip(b_chunks.clone())
+            .map(|(a, b)| {
+                let a = u64::from_ne_bytes(a.try_into().unwrap());
+                let b = u64::from_ne_bytes(b.try_into().unwrap());
+                (a ^ b).count_ones()
+            })
+            .sum();
+
+        let rem: u32 = a_chunks.remainder().iter().zip(b_chunks.remainder())
+            .map(|(a, b)| (a ^ b).count_ones())
+            .sum();
+
+        *dist = main + rem;
+    }
 }
 
 /// Compute Hamming distance from one source embedding to many targets.
@@ -379,7 +460,26 @@ pub fn hamming_bitwise_array_batch<const N: usize>(
     targets: &[[u8; N]],
     out: &mut [u32],
 ) {
-    hamming_batch_array_chunks(source, targets, out)
+    assert_eq!(targets.len(), out.len());
+
+    for (target, dist) in targets.iter().zip(out.iter_mut()) {
+        let a_chunks = source.chunks_exact(8);
+        let b_chunks = target.chunks_exact(8);
+
+        let main: u32 = a_chunks.clone().zip(b_chunks.clone())
+            .map(|(a, b)| {
+                let a = u64::from_ne_bytes(a.try_into().unwrap());
+                let b = u64::from_ne_bytes(b.try_into().unwrap());
+                (a ^ b).count_ones()
+            })
+            .sum();
+
+        let rem: u32 = a_chunks.remainder().iter().zip(b_chunks.remainder())
+            .map(|(a, b)| (a ^ b).count_ones())
+            .sum();
+
+        *dist = main + rem;
+    }
 }
 
 /// Compute Hamming distance from one source embedding to many targets.
@@ -463,15 +563,35 @@ pub fn hamming_bitwise_array_batch<const N: usize>(
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 #[multiversion::multiversion(targets(
-    "x86_64+avx512vpopcntdq+avx512vl",
-    "x86_64+avx512bw+avx512vl",
+    "x86_64+avx512vpopcntdq+avx512vl+popcnt",
+    "x86_64+avx512bw+avx512vl+popcnt",
     "x86_64+avx2+popcnt",
     "x86_64+sse4.2+popcnt",
     "x86+avx2+popcnt",
     "x86+sse4.2+popcnt",
 ))]
 pub fn hamming_bitwise_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
-    hamming_batch_slice_chunks(source, targets, out)
+    assert_eq!(targets.len(), out.len());
+
+    for (target, dist) in targets.iter().zip(out.iter_mut()) {
+        assert_eq!(source.len(), target.len());
+        let a_chunks = source.chunks_exact(8);
+        let b_chunks = target.chunks_exact(8);
+
+        let main: u32 = a_chunks.clone().zip(b_chunks.clone())
+            .map(|(a, b)| {
+                let a = u64::from_ne_bytes(a.try_into().unwrap());
+                let b = u64::from_ne_bytes(b.try_into().unwrap());
+                (a ^ b).count_ones()
+            })
+            .sum();
+
+        let rem: u32 = a_chunks.remainder().iter().zip(b_chunks.remainder())
+            .map(|(a, b)| (a ^ b).count_ones())
+            .sum();
+
+        *dist = main + rem;
+    }
 }
 
 /// Compute Hamming distance from one source slice to many target slices.
@@ -510,7 +630,27 @@ pub fn hamming_bitwise_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 pub fn hamming_bitwise_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
-    hamming_batch_slice_chunks(source, targets, out)
+    assert_eq!(targets.len(), out.len());
+
+    for (target, dist) in targets.iter().zip(out.iter_mut()) {
+        assert_eq!(source.len(), target.len());
+        let a_chunks = source.chunks_exact(8);
+        let b_chunks = target.chunks_exact(8);
+
+        let main: u32 = a_chunks.clone().zip(b_chunks.clone())
+            .map(|(a, b)| {
+                let a = u64::from_ne_bytes(a.try_into().unwrap());
+                let b = u64::from_ne_bytes(b.try_into().unwrap());
+                (a ^ b).count_ones()
+            })
+            .sum();
+
+        let rem: u32 = a_chunks.remainder().iter().zip(b_chunks.remainder())
+            .map(|(a, b)| (a ^ b).count_ones())
+            .sum();
+
+        *dist = main + rem;
+    }
 }
 
 /// Compute Hamming distance from one source slice to many target slices.
@@ -563,109 +703,6 @@ pub fn hamming_bitwise_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [
 #[inline]
 pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
     hamming_bitwise_slice(x, y)
-}
-
-// ============================================================================
-// Internal implementations
-// ============================================================================
-
-/// Slice implementation using u64 chunks (x86 only).
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[inline]
-fn hamming_slice_chunks(a: &[u8], b: &[u8]) -> u32 {
-    assert_eq!(a.len(), b.len());
-
-    let a_chunks = a.chunks_exact(8);
-    let b_chunks = b.chunks_exact(8);
-
-    // Process 8 bytes at a time using u64
-    let chunks_distance: u32 = a_chunks
-        .clone()
-        .zip(b_chunks.clone())
-        .map(|(a_chunk, b_chunk)| {
-            let a_val = u64::from_ne_bytes(a_chunk.try_into().unwrap());
-            let b_val = u64::from_ne_bytes(b_chunk.try_into().unwrap());
-            (a_val ^ b_val).count_ones()
-        })
-        .sum();
-
-    // Handle remainder bytes by packing into a u64 for a single popcount
-    let remainder_distance = if a.len() % 8 != 0 {
-        let a_rem = a_chunks.remainder();
-        let b_rem = b_chunks.remainder();
-        let mut a_val = 0u64;
-        let mut b_val = 0u64;
-        for (i, (&a_byte, &b_byte)) in a_rem.iter().zip(b_rem).enumerate() {
-            a_val |= (a_byte as u64) << (i * 8);
-            b_val |= (b_byte as u64) << (i * 8);
-        }
-        (a_val ^ b_val).count_ones()
-    } else {
-        0
-    };
-
-    chunks_distance + remainder_distance
-}
-
-/// Array implementation using u64 chunks (x86 only).
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[inline]
-fn hamming_array_chunks<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
-    let a_chunks = a.chunks_exact(8);
-    let b_chunks = b.chunks_exact(8);
-
-    let chunks_distance: u32 = a_chunks
-        .zip(b_chunks)
-        .map(|(a_chunk, b_chunk)| {
-            let a_val = u64::from_ne_bytes(a_chunk.try_into().unwrap());
-            let b_val = u64::from_ne_bytes(b_chunk.try_into().unwrap());
-            (a_val ^ b_val).count_ones()
-        })
-        .sum();
-
-    // Handle remainder bytes by packing into a u64 for a single popcount.
-    // Compiler optimizes this away when N % 8 == 0.
-    let remainder_distance = if N % 8 != 0 {
-        let a_rem = a.chunks_exact(8).remainder();
-        let b_rem = b.chunks_exact(8).remainder();
-        let mut a_val = 0u64;
-        let mut b_val = 0u64;
-        for (i, (&a_byte, &b_byte)) in a_rem.iter().zip(b_rem).enumerate() {
-            a_val |= (a_byte as u64) << (i * 8);
-            b_val |= (b_byte as u64) << (i * 8);
-        }
-        (a_val ^ b_val).count_ones()
-    } else {
-        0
-    };
-
-    chunks_distance + remainder_distance
-}
-
-/// Batch implementation using u64 chunks (x86 only).
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[inline]
-fn hamming_batch_array_chunks<const N: usize>(
-    source: &[u8; N],
-    targets: &[[u8; N]],
-    out: &mut [u32],
-) {
-    assert_eq!(targets.len(), out.len());
-
-    for (target, dist) in targets.iter().zip(out.iter_mut()) {
-        *dist = hamming_array_chunks(source, target);
-    }
-}
-
-/// Batch slice implementation using u64 chunks (x86 only).
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[inline]
-fn hamming_batch_slice_chunks(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
-    assert_eq!(targets.len(), out.len());
-
-    for (target, dist) in targets.iter().zip(out.iter_mut()) {
-        *dist = hamming_slice_chunks(source, target);
-    }
 }
 
 // ============================================================================
