@@ -107,13 +107,12 @@ RUSTFLAGS="-C target-cpu=x86-64-v4 -C target-feature=+avx512vpopcntdq" cargo bui
 
 > ⚠️ **Warning:** Binaries built with compile-time CPU targeting will crash with "illegal instruction" if run on a CPU that doesn't support the required features. For portable deployments, use the `multiversion_x86` feature instead.
 
-### Performance comparison
+### Performance comparison (Ice Lake x86)
 
-| Option | Speed (1024-bit) | Trade-off |
-|--------|------------------|-----------|
-| Default | ~9ns | Maximum portability, but slow |
-| `multiversion_x86` feature | ~4ns | Fast on any x86 CPU (recommended) |
-| `-C target-cpu=native` | ~2ns | Fastest, but binary only runs on build machine |
+| Option | Speed (1024-bit) |
+|--------|------------------|
+| Default (no SIMD) | ~10ns |
+| `multiversion_x86` feature | ~3-4ns |
 
 **For Docker/cloud deployments**, `multiversion_x86` is strongly recommended—it automatically uses AVX-512 on modern cloud instances while remaining compatible with older hardware.
 
