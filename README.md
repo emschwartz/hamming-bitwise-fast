@@ -65,7 +65,9 @@ Rust targets the baseline [x86-64 microarchitecture level](https://en.wikipedia.
 | x86-64-v1 | 2003 | SSE2 (baseline) |
 | x86-64-v2 | 2008 | SSE4.2, POPCNT |
 | x86-64-v3 | 2013 | AVX2, BMI1/2 |
-| x86-64-v4 | 2017 | AVX-512, VPOPCNTDQ |
+| x86-64-v4 | 2017 | AVX-512 |
+
+**Note:** The `VPOPCNTDQ` instruction (vectorized popcount) that makes Hamming distance extremely fast is a *separate* AVX-512 extension, not part of the base x86-64-v4 level. It's available on Ice Lake (2019) and later CPUs. The `multiversion_x86` feature automatically detects and uses it when available.
 
 ### The Solution: `multiversion_x86`
 
