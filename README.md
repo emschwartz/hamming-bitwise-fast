@@ -47,7 +47,27 @@ assert_eq!(distances, vec![1024, 0]);
 | `hamming_bitwise_slice` | Variable-length or large (≥256 byte) data | Simpler API; performance matches array at large sizes |
 | `hamming_bitwise_array_batch` | One-to-many comparisons | Amortizes function call overhead |
 
-On x86, enable the `multiversion_x86` feature for runtime CPU dispatch to AVX-512/AVX2.
+**x86 performance options:**
+
+| Option | Speed (1024-bit) | Trade-off |
+|--------|------------------|-----------|
+| Default (`cargo build --release`) | ~9ns | Maximum portability, but slow |
+| `multiversion_x86` feature | ~4ns | Fast on any x86 CPU (runtime detection) |
+| `-C target-cpu=native` | ~2ns | Fastest, but binary only runs on identical CPUs |
+| `-C target-cpu=x86-64-v3` | ~3ns | Requires AVX2 (2013+ CPUs) |
+| `-C target-cpu=x86-64-v4` | ~2ns | Requires AVX-512 (2017+ CPUs) |
+
+### Why is the default so slow?
+
+Rust targets the baseline [x86-64 microarchitecture level](https://en.wikipedia.org/wiki/X86-64#Microarchitecture_levels) (v1) by default, which only includes SSE2. This ensures binaries run on any x86-64 CPU made since 2003, but misses major SIMD improvements:
+
+- **x86-64-v2** (2008+): SSE4.2, POPCNT
+- **x86-64-v3** (2013+): AVX2, BMI1/2
+- **x86-64-v4** (2017+): AVX-512
+
+You can target a specific level with `-C target-cpu=x86-64-v3`, but the binary will crash with an "illegal instruction" error on older CPUs that lack those features.
+
+**For Docker/cloud deployments**, the `multiversion_x86` feature is recommended—it compiles multiple code paths and selects the fastest one at runtime via CPUID, giving near-optimal performance on any x86 CPU without risking illegal instruction errors.
 
 ## Benchmarks
 
@@ -70,22 +90,43 @@ Then open the `target/criterion/report/index.html` file in your browser to view 
 
 ### Results
 
-These were the results running on 3 different types of machines:
+#### Single Pair Comparison (Linode 2 CPU 4GB, AVX-512)
 
-### 2023 MacBook Pro M2 Max
+Comparing `hamming_bitwise_array` and `hamming_bitwise_slice` against competitor crates:
+
+![Single pair benchmark](results/violin-single-linode-avx512.svg)
+
+#### Batch Comparison (64 targets, Linode 2 CPU 4GB, AVX-512)
+
+Comparing batch operations against looping over individual calls:
+
+![Batch benchmark](results/violin-batch-linode-avx512.svg)
+
+#### Historical Results (older benchmarks)
+
+<details>
+<summary>2023 MacBook Pro M2 Max</summary>
 
 ![Benchmark results](results/line-chart-macbook.svg)
 ![Benchmark results](results/violin-chart-macbook.svg)
 
-### Linode 2 CPU 4GB
+</details>
+
+<details>
+<summary>Linode 2 CPU 4GB</summary>
 
 ![Benchmark results](results/line-chart-linode.svg)
 ![Benchmark results](results/violin-chart-linode.svg)
 
-### Fly.io 2 CPU 4GB
+</details>
+
+<details>
+<summary>Fly.io 2 CPU 4GB</summary>
 
 ![Benchmark results](results/line-chart-fly.svg)
 ![Benchmark results](results/violin-chart-fly.svg)
+
+</details>
 
 ## License
 

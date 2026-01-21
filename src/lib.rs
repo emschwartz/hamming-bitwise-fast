@@ -49,9 +49,14 @@
 ///
 /// # Performance
 ///
-/// - On x86 with `multiversion_x86`: Uses AVX-512 VPOPCNTDQ when available (~3-5ns for 1024-bit)
-/// - On ARM: Uses NEON-friendly auto-vectorization (~3ns for 1024-bit)
-/// - On x86 without `multiversion_x86`: Uses auto-vectorized u64 chunked processing (~10ns for 1024-bit)
+/// On x86, Rust defaults to the baseline x86-64 instruction set (SSE2 only) for portability,
+/// which is slow (~10ns for 1024-bit). For better performance:
+///
+/// - **`multiversion_x86` feature**: ~4ns (runtime CPU dispatch, recommended for Docker/cloud)
+/// - **`-C target-cpu=native`**: ~3ns (compile-time optimization, binary only runs on identical CPUs)
+/// - **`-C target-cpu=x86-64-v3`**: ~3ns (requires AVX2, crashes on older CPUs)
+///
+/// On ARM, NEON is the baseline so default builds are already fast (~3ns for 1024-bit).
 ///
 /// For known compile-time sizes, consider [`hamming_bitwise_array`] which is faster
 /// for embeddings under 2048 bits (256 bytes):
@@ -122,10 +127,11 @@ pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
 /// - **Under 2048 bits**: 10-100% faster depending on platform and size
 /// - **2048+ bits**: Similar performance; use whichever is more convenient
 ///
-/// **Absolute timings (1024-bit / 128 bytes):**
-/// - ARM (Apple M2, Graviton): ~2.4ns
-/// - x86 with `multiversion_x86` (AVX-512): ~3.3ns
-/// - x86 without features: ~8.9ns
+/// **Absolute timings (1024-bit / 128 bytes, Linode x86-64 with AVX-512):**
+/// - Default release build: ~8.9ns (baseline x86-64, SSE2 only)
+/// - With `multiversion_x86` feature: ~3.7ns (runtime CPU dispatch)
+/// - With `-C target-cpu=native`: ~2.1ns (binary won't run on other CPUs)
+/// - With `-C target-cpu=x86-64-v4`: ~2.1ns (requires AVX-512, crashes on older CPUs)
 ///
 /// # Example
 ///

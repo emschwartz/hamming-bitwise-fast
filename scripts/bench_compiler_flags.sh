@@ -88,7 +88,7 @@ else
     run_bench "1b. Default + native" "-C target-cpu=native"
 
     echo "--- With multiversion feature ---"
-    run_bench "2. multiversion" "" "multiversion"
+    run_bench "2. multiversion" "" "multiversion_x86"
 
     echo "--- Specific x86-64 levels (no features) ---"
     run_bench "4. x86-64-v2 (SSE4.2 + POPCNT)" "-C target-cpu=x86-64-v2"
