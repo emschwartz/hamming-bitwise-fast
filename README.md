@@ -6,6 +6,7 @@
 This started out as a benchmark of various bitwise Hamming distance implementations in Rust.
 However, after finding that a simple implementation that is amenable to auto-vectorization
 was comparable, if not faster, than other implementations, I decided to publish it as a crate.
+A second round of benchmarking uncovered more optimizations and yielded even faster results.
 
 **Note:** This is for comparing bit-vectors, _not_ for comparing strings.
 
@@ -99,8 +100,6 @@ RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release
 # Requires AVX-512 base (2017+ server CPUs)
 RUSTFLAGS="-C target-cpu=x86-64-v4" cargo build --release
 
-# Requires AVX-512 with VPOPCNTDQ (Ice Lake 2019+) - fastest for Hamming distance
-RUSTFLAGS="-C target-cpu=icelake-server" cargo build --release
 # Or explicitly enable the feature on any AVX-512 base:
 RUSTFLAGS="-C target-cpu=x86-64-v4 -C target-feature=+avx512vpopcntdq" cargo build --release
 ```
