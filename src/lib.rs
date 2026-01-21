@@ -1,42 +1,65 @@
-//! A fast, zero-dependency implementation of bitwise Hamming Distance using
+//! A fast, zero-dependency\* implementation of bitwise Hamming Distance using
 //! a method amenable to auto-vectorization.
+//!
+//! _\* Zero dependencies by default. The optional `multiversion_x86` feature adds the
+//! [`multiversion`](https://crates.io/crates/multiversion) crate for runtime CPU detection on x86._
 //!
 //! # Quick Start
 //!
 //! For byte slices (variable-length):
 //! ```
-//! use hamming_bitwise_fast::hamming_bitwise_slice;
+//! use hamming_bitwise_fast::{hamming_bitwise_slice, hamming_bitwise_slice_batch};
 //!
-//! let a = [0u8; 128];
-//! let b = [0xFFu8; 128];
-//! let distance = hamming_bitwise_slice(&a, &b);
+//! // Single comparison
+//! let a = vec![0xFFu8; 128];
+//! let b = vec![0x00u8; 128];
+//! let distance = hamming_bitwise_slice(&a, &b); // 1024
+//!
+//! // Batch comparison (one source vs many targets)
+//! // Pre-allocate result vec once and reuse across calls for best performance
+//! let source = vec![0x00u8; 128];
+//! let targets: Vec<&[u8]> = vec![&a, &b];
+//! let mut distances = vec![0u32; 2];
+//! hamming_bitwise_slice_batch(&source, &targets, &mut distances); // [1024, 0]
 //! ```
 //!
-//! For fixed-size embeddings (10-100% faster for sizes under 2048 bits):
+//! For fixed-size arrays (faster for small sizes):
 //! ```
-//! use hamming_bitwise_fast::hamming_bitwise_array;
+//! use hamming_bitwise_fast::{hamming_bitwise_array, hamming_bitwise_array_batch};
 //!
-//! // 1024-bit embeddings = 128 bytes
-//! let a: [u8; 128] = [0; 128];
-//! let b: [u8; 128] = [0xFF; 128];
-//! let distance = hamming_bitwise_array(&a, &b);
+//! // Single comparison
+//! let a: [u8; 128] = [0xFF; 128];  // 1024-bit vectors
+//! let b: [u8; 128] = [0x00; 128];
+//! let distance = hamming_bitwise_array(&a, &b); // 1024
+//!
+//! // Batch comparison (one source vs many targets)
+//! // Pre-allocate result vec once and reuse across calls for best performance
+//! let source: [u8; 128] = [0x00; 128];
+//! let targets: Vec<[u8; 128]> = vec![a, b];
+//! let mut distances = vec![0u32; 2];
+//! hamming_bitwise_array_batch(&source, &targets, &mut distances); // [1024, 0]
 //! ```
 //!
-//! For batch operations:
-//! ```
-//! use hamming_bitwise_fast::hamming_bitwise_array_batch;
+//! # SIMD on x86
 //!
-//! let source: [u8; 128] = [0; 128];
-//! let targets: Vec<[u8; 128]> = vec![[1; 128], [2; 128], [3; 128]];
-//! let mut distances = vec![0u32; targets.len()];
-//! hamming_bitwise_array_batch(&source, &targets, &mut distances);
+//! **TL;DR:** On x86, enable the `multiversion_x86` feature for best performance:
+//! ```sh
+//! cargo add hamming-bitwise-fast --features multiversion_x86
 //! ```
+//!
+//! Rust targets the baseline x86-64 instruction set (SSE2 only) by default, which is slow
+//! for Hamming distance (~10ns for 1024-bit). The `multiversion_x86` feature uses runtime
+//! CPU detection to automatically use AVX2/AVX-512 when available (~3-4ns), or even faster
+//! with batch operations (~0.8ns per comparison).
+//!
+//! On ARM, NEON is the baseline so default builds are already fast.
+//!
+//! For more details, see the [README](https://github.com/evanrichter/hamming-bitwise-fast#simd-on-x86).
 //!
 //! # Feature Flags
 //!
 //! - `multiversion_x86`: Enables runtime CPU dispatch for optimal SIMD on x86.
-//!   Recommended for x86 deployments. On ARM and other non-x86 platforms,
-//!   this feature has no effect (auto-vectorization is already near-optimal).
+//!   Recommended for x86 deployments where you can't use `-C target-cpu=native`.
 
 // ============================================================================
 // Public API
@@ -47,22 +70,16 @@
 /// This function uses runtime CPU detection to dispatch to optimized SIMD implementations
 /// on x86/x86_64 platforms when the `multiversion_x86` feature is enabled.
 ///
-/// # Performance
+/// # Performance (1024-bit, Ice Lake x86)
 ///
-/// On x86, Rust defaults to the baseline x86-64 instruction set (SSE2 only) for portability,
-/// which is slow (~10ns for 1024-bit). For better performance:
+/// | Configuration | Speed |
+/// |---------------|-------|
+/// | Default (no SIMD) | ~10ns |
+/// | `multiversion_x86` feature | ~3-4ns |
 ///
-/// - **`multiversion_x86` feature**: ~4ns (runtime CPU dispatch, recommended for Docker/cloud)
-/// - **`-C target-cpu=native`**: ~3ns (compile-time optimization, binary only runs on identical CPUs)
-/// - **`-C target-cpu=x86-64-v3`**: ~3ns (requires AVX2, crashes on older CPUs)
+/// On ARM, NEON is the baseline so default builds are already fast.
 ///
-/// On ARM, NEON is the baseline so default builds are already fast (~3ns for 1024-bit).
-///
-/// For known compile-time sizes, consider [`hamming_bitwise_array`] which is faster
-/// for embeddings under 2048 bits (256 bytes):
-/// - **ARM**: 10-100% faster (greatest benefit at smaller sizes)
-/// - **x86**: 10-30% faster for sizes under 2048 bits
-/// - **2048+ bits**: Performance is essentially identical
+/// For batch comparisons, see [`hamming_bitwise_slice_batch`].
 ///
 /// # Panics
 ///
@@ -107,11 +124,8 @@ pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
 
 /// Compute Hamming distance for fixed-size byte arrays.
 ///
-/// This is the recommended function for embeddings of known size at compile time,
-/// especially for sizes under 2048 bits (256 bytes) where it provides measurable
-/// performance benefits over [`hamming_bitwise_slice`].
-///
-/// The const generic `N` represents the number of bytes.
+/// Use this when the embedding size is known at compile time. The const generic `N`
+/// represents the number of bytes.
 ///
 /// Common sizes:
 /// - `N=64`: 512-bit embedding
@@ -119,19 +133,15 @@ pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
 /// - `N=128`: 1024-bit embedding
 /// - `N=256`: 2048-bit embedding
 ///
-/// # Performance
+/// # Performance (1024-bit, Ice Lake x86)
 ///
-/// Compile-time size knowledge enables better loop unrolling and eliminates bounds checking.
+/// | Configuration | Speed |
+/// |---------------|-------|
+/// | Default (no SIMD) | ~10ns |
+/// | `multiversion_x86` feature | ~3ns |
 ///
-/// **vs slice (when to prefer arrays):**
-/// - **Under 2048 bits**: 10-100% faster depending on platform and size
-/// - **2048+ bits**: Similar performance; use whichever is more convenient
-///
-/// **Absolute timings (1024-bit / 128 bytes, Linode x86-64 with AVX-512):**
-/// - Default release build: ~8.9ns (baseline x86-64, SSE2 only)
-/// - With `multiversion_x86` feature: ~3.7ns (runtime CPU dispatch)
-/// - With `-C target-cpu=native`: ~2.1ns (binary won't run on other CPUs)
-/// - With `-C target-cpu=x86-64-v4`: ~2.1ns (requires AVX-512, crashes on older CPUs)
+/// For batch comparisons, see [`hamming_bitwise_array_batch`] which can achieve
+/// ~0.8ns per comparison.
 ///
 /// # Example
 ///
@@ -182,10 +192,12 @@ pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
 
 /// Compute Hamming distance from one source embedding to many targets.
 ///
-/// This is significantly faster than calling [`hamming_bitwise_array`] in a loop because:
-/// 1. The function call overhead is amortized across all comparisons
-/// 2. The source embedding can stay in registers
-/// 3. With `multiversion_x86`, the CPU dispatch happens once for all comparisons
+/// This is significantly faster than calling [`hamming_bitwise_array`] in a loop (~4x faster
+/// on Ice Lake x86 with `multiversion_x86`).
+///
+/// # Performance (1024-bit, Ice Lake x86 with `multiversion_x86`)
+///
+/// ~0.8ns per comparison (vs ~3ns for single comparisons in a loop).
 ///
 /// # Arguments
 ///
@@ -204,6 +216,8 @@ pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
 ///
 /// let source: [u8; 128] = [0; 128];
 /// let targets = vec![[1u8; 128], [2u8; 128], [3u8; 128]];
+///
+/// // Pre-allocate result vec once and reuse across calls for best performance
 /// let mut distances = vec![0u32; 3];
 ///
 /// hamming_bitwise_array_batch(&source, &targets, &mut distances);
@@ -258,8 +272,7 @@ pub fn hamming_bitwise_array_batch<const N: usize>(
 /// Compute Hamming distance from one source slice to many target slices.
 ///
 /// This is the slice-based equivalent of [`hamming_bitwise_array_batch`], useful when
-/// embedding sizes are not known at compile time or when working with dynamically
-/// sized data.
+/// embedding sizes are not known at compile time.
 ///
 /// # Arguments
 ///
@@ -281,6 +294,8 @@ pub fn hamming_bitwise_array_batch<const N: usize>(
 /// let source = vec![0u8; 128];
 /// let targets_owned: Vec<Vec<u8>> = vec![vec![1u8; 128], vec![2u8; 128], vec![3u8; 128]];
 /// let targets: Vec<&[u8]> = targets_owned.iter().map(|v| v.as_slice()).collect();
+///
+/// // Pre-allocate result vec once and reuse across calls for best performance
 /// let mut distances = vec![0u32; 3];
 ///
 /// hamming_bitwise_slice_batch(&source, &targets, &mut distances);
