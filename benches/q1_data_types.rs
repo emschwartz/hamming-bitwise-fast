@@ -10,12 +10,13 @@
 
 mod helpers;
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, AxisScale, BenchmarkId, Criterion, PlotConfiguration};
 use hamming_bitwise_fast::hamming_bitwise_array;
 use helpers::*;
 
 fn data_type_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("data_types");
+    group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Linear));
 
     // ========================================================================
     // u8 array: byte-by-byte iteration

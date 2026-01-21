@@ -10,7 +10,7 @@
 
 mod helpers;
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{black_box, criterion_group, criterion_main, AxisScale, BenchmarkId, Criterion, PlotConfiguration, Throughput};
 use hamming_bitwise_fast::{
     hamming_bitwise_array, hamming_bitwise_array_batch, hamming_bitwise_slice,
 };
@@ -22,6 +22,7 @@ use helpers::*;
 
 fn single_comparison(c: &mut Criterion) {
     let mut group = c.benchmark_group("single");
+    group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Linear));
 
     for size in BIT_SIZES {
         let bytes = size.bytes();
@@ -88,6 +89,7 @@ fn single_comparison(c: &mut Criterion) {
 
 fn batch_comparison(c: &mut Criterion) {
     let mut group = c.benchmark_group("batch_64");
+    group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Linear));
     const BATCH: usize = 64;
 
     // Our batch API with const-generic u8 arrays

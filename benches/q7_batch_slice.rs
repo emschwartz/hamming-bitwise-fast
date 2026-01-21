@@ -9,7 +9,7 @@
 
 mod helpers;
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{black_box, criterion_group, criterion_main, AxisScale, BenchmarkId, Criterion, PlotConfiguration, Throughput};
 use hamming_bitwise_fast::{hamming_bitwise_slice, hamming_bitwise_slice_batch};
 use helpers::*;
 
@@ -21,6 +21,7 @@ const BATCH: usize = 64;
 
 fn batch_slice_vs_loop(c: &mut Criterion) {
     let mut group = c.benchmark_group("batch_slice_vs_loop");
+    group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Linear));
 
     for size in BIT_SIZES {
         let bytes = size.bytes();
@@ -78,6 +79,7 @@ fn batch_slice_vs_loop(c: &mut Criterion) {
 
 fn batch_slice_competitors(c: &mut Criterion) {
     let mut group = c.benchmark_group("batch_slice_competitors");
+    group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Linear));
 
     for size in BIT_SIZES {
         let bytes = size.bytes();

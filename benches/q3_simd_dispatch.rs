@@ -21,12 +21,13 @@
 
 mod helpers;
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, AxisScale, BenchmarkId, Criterion, PlotConfiguration};
 use hamming_bitwise_fast::hamming_bitwise_array;
 use helpers::*;
 
 fn simd_dispatch(c: &mut Criterion) {
     let mut group = c.benchmark_group("simd_dispatch");
+    group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Linear));
 
     // ========================================================================
     // Auto-vectorized (baseline): What the compiler does by default

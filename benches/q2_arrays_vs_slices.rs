@@ -10,12 +10,13 @@
 
 mod helpers;
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, AxisScale, BenchmarkId, Criterion, PlotConfiguration};
 use hamming_bitwise_fast::{hamming_bitwise_array, hamming_bitwise_slice};
 use helpers::*;
 
 fn arrays_vs_slices(c: &mut Criterion) {
     let mut group = c.benchmark_group("arrays_vs_slices");
+    group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Linear));
 
     // ========================================================================
     // Fixed-size arrays: Compiler knows the exact size at compile time
