@@ -11,7 +11,8 @@
 
 mod helpers;
 
-use criterion::{black_box, criterion_group, criterion_main, AxisScale, BenchmarkId, Criterion, PlotConfiguration, Throughput};
+use criterion::{criterion_group, criterion_main, AxisScale, BenchmarkId, Criterion, PlotConfiguration, Throughput};
+use std::hint::black_box;
 use hamming_bitwise_fast::{hamming_bitwise_array, hamming_bitwise_array_batch};
 use helpers::*;
 use std::cell::Cell;
@@ -22,7 +23,7 @@ fn batching_benchmarks(c: &mut Criterion) {
     // ========================================================================
     {
         let mut group = c.benchmark_group("per_comparison");
-        group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Linear));
+        group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
         // Single pair (no batch context) - baseline
         macro_rules! bench_single {
@@ -79,7 +80,7 @@ fn batching_benchmarks(c: &mut Criterion) {
     // ========================================================================
     {
         let mut group = c.benchmark_group("batch_vs_loop");
-        group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Linear));
+        group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
         const BATCH: usize = 64;
 
         macro_rules! bench_batch_vs_loop {
@@ -133,7 +134,7 @@ fn batching_benchmarks(c: &mut Criterion) {
     // ========================================================================
     {
         let mut group = c.benchmark_group("fixed_vs_variable");
-        group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Linear));
+        group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
         const BATCH: usize = 64;
 
         macro_rules! bench_variable {
@@ -201,7 +202,7 @@ fn batching_benchmarks(c: &mut Criterion) {
     // ========================================================================
     {
         let mut group = c.benchmark_group("allocation");
-        group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Linear));
+        group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
         const BATCH: usize = 64;
 
         macro_rules! bench_alloc {
