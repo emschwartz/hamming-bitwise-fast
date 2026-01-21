@@ -15,30 +15,34 @@ _\* Zero dependencies by default. The optional `multiversion_x86` feature adds t
 
 For variable-length slices:
 ```rust
-use hamming_bitwise_fast::hamming_bitwise_slice;
+use hamming_bitwise_fast::{hamming_bitwise_slice, hamming_bitwise_slice_batch};
 
-assert_eq!(hamming_bitwise_slice(&[0xFF; 128], &[0xFF; 128]), 0);
-assert_eq!(hamming_bitwise_slice(&[0xFF; 128], &[0x00; 128]), 1024);
+// Single comparison
+let a: Vec<u8> = vec![0xFF; 128];
+let b: Vec<u8> = vec![0x00; 128];
+let distance: u32 = hamming_bitwise_slice(&a, &b); // 1024
+
+// Batch comparison (one source vs many targets)
+let source: Vec<u8> = vec![0x00; 128];
+let targets: Vec<&[u8]> = vec![&a, &b];
+let mut distances: Vec<u32> = vec![0; 2];
+hamming_bitwise_slice_batch(&source, &targets, &mut distances); // [1024, 0]
 ```
 
-For fixed-size arrays (10-100% faster for sizes under 2048 bits / 256 bytes):
+For fixed-size arrays (faster for sizes under 2048 bits / 256 bytes):
 ```rust
-use hamming_bitwise_fast::hamming_bitwise_array;
+use hamming_bitwise_fast::{hamming_bitwise_array, hamming_bitwise_array_batch};
 
-let a: [u8; 128] = [0xFF; 128];  // 1024-bit embedding
+// Single comparison
+let a: [u8; 128] = [0xFF; 128];  // 1024-bit vectors
 let b: [u8; 128] = [0x00; 128];
-assert_eq!(hamming_bitwise_array(&a, &b), 1024);
-```
+let distance: u32 = hamming_bitwise_array(&a, &b); // 1024
 
-For batch comparisons (one source vs many targets):
-```rust
-use hamming_bitwise_fast::hamming_bitwise_array_batch;
-
-let source: [u8; 128] = [0; 128];
-let targets = vec![[0xFF; 128], [0; 128]];
-let mut distances = vec![0u32; 2];
-hamming_bitwise_array_batch(&source, &targets, &mut distances);
-assert_eq!(distances, vec![1024, 0]);
+// Batch comparison (one source vs many targets)
+let source: [u8; 128] = [0x00; 128];
+let targets: Vec<[u8; 128]> = vec![a, b];
+let mut distances: Vec<u32> = vec![0; 2];
+hamming_bitwise_array_batch(&source, &targets, &mut distances); // [1024, 0]
 ```
 
 ## Performance
@@ -47,7 +51,8 @@ assert_eq!(distances, vec![1024, 0]);
 |----------|----------|-----|
 | `hamming_bitwise_array` | Fixed-size embeddings < 256 bytes | Compile-time size enables loop unrolling |
 | `hamming_bitwise_slice` | Variable-length or large (≥256 byte) data | Simpler API; performance matches array at large sizes |
-| `hamming_bitwise_array_batch` | One-to-many comparisons | Amortizes function call overhead |
+| `hamming_bitwise_array_batch` | One-to-many array comparisons | Amortizes function call overhead |
+| `hamming_bitwise_slice_batch` | One-to-many slice comparisons | Amortizes function call overhead |
 
 ## SIMD on x86
 
