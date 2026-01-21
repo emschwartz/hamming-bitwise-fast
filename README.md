@@ -91,9 +91,16 @@ RUSTFLAGS="-C target-cpu=native" cargo build --release
 # Requires AVX2 (2013+ CPUs)
 RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release
 
-# Requires AVX-512 (2017+ server CPUs, 2019+ consumer CPUs)
+# Requires AVX-512 base (2017+ server CPUs)
 RUSTFLAGS="-C target-cpu=x86-64-v4" cargo build --release
+
+# Requires AVX-512 with VPOPCNTDQ (Ice Lake 2019+) - fastest for Hamming distance
+RUSTFLAGS="-C target-cpu=icelake-server" cargo build --release
+# Or explicitly enable the feature on any AVX-512 base:
+RUSTFLAGS="-C target-cpu=x86-64-v4 -C target-feature=+avx512vpopcntdq" cargo build --release
 ```
+
+> ⚠️ **Warning:** Binaries built with compile-time CPU targeting will crash with "illegal instruction" if run on a CPU that doesn't support the required features. For portable deployments, use the `multiversion_x86` feature instead.
 
 ### Performance comparison
 
