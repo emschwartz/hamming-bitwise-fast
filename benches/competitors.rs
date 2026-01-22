@@ -27,7 +27,7 @@ fn single_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("single");
 
     for &size in SIZES {
-        group.throughput(Throughput::Bytes(size as u64 * 2));
+        group.throughput(Throughput::Bits((size * 8 * 2) as u64));
 
         // hamming_bitwise_array - requires const generics, so we dispatch manually
         match size {
@@ -185,7 +185,7 @@ fn batch_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("batch");
 
     for &size in SIZES {
-        group.throughput(Throughput::Bytes(size as u64 * 2 * BATCH as u64));
+        group.throughput(Throughput::Bits((size * 8 * 2 * BATCH) as u64));
 
         // hamming_bitwise_array_batch - requires const generics
         match size {
