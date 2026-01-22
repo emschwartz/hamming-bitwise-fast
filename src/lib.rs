@@ -96,7 +96,7 @@
     "x86+avx2+popcnt",
     "x86+sse4.2+popcnt",
 ))]
-#[inline]
+#[inline(always)]
 pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
     assert_eq!(a.len(), b.len());
     let a_chunks = a.chunks_exact(8);
@@ -140,7 +140,7 @@ pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
     not(feature = "multiversion_x86"),
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
-#[inline]
+#[inline(always)]
 pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
     assert_eq!(a.len(), b.len());
     let a_chunks = a.chunks_exact(8);
@@ -181,7 +181,7 @@ pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
 ///
 /// Panics if the two slices are not the same length.
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-#[inline]
+#[inline(always)]
 pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
     assert_eq!(a.len(), b.len());
     a.iter()
@@ -233,7 +233,7 @@ pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
     "x86+avx2+popcnt",
     "x86+sse4.2+popcnt",
 ))]
-#[inline]
+#[inline(always)]
 pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     let a_chunks = a.chunks_exact(8);
     let b_chunks = b.chunks_exact(8);
@@ -288,7 +288,7 @@ pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     not(feature = "multiversion_x86"),
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
-#[inline]
+#[inline(always)]
 pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     let a_chunks = a.chunks_exact(8);
     let b_chunks = b.chunks_exact(8);
@@ -340,7 +340,7 @@ pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
 /// let distance = hamming_bitwise_array(&a, &b);
 /// ```
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-#[inline]
+#[inline(always)]
 pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     a.iter()
         .zip(b.iter())
@@ -392,6 +392,7 @@ pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     "x86+avx2+popcnt",
     "x86+sse4.2+popcnt",
 ))]
+#[inline(always)]
 pub fn hamming_bitwise_array_batch<const N: usize>(
     source: &[u8; N],
     targets: &[[u8; N]],
@@ -455,6 +456,7 @@ pub fn hamming_bitwise_array_batch<const N: usize>(
     not(feature = "multiversion_x86"),
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
+#[inline(always)]
 pub fn hamming_bitwise_array_batch<const N: usize>(
     source: &[u8; N],
     targets: &[[u8; N]],
@@ -515,6 +517,7 @@ pub fn hamming_bitwise_array_batch<const N: usize>(
 /// hamming_bitwise_array_batch(&source, &targets, &mut distances);
 /// ```
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline(always)]
 pub fn hamming_bitwise_array_batch<const N: usize>(
     source: &[u8; N],
     targets: &[[u8; N]],
@@ -570,6 +573,7 @@ pub fn hamming_bitwise_array_batch<const N: usize>(
     "x86+avx2+popcnt",
     "x86+sse4.2+popcnt",
 ))]
+#[inline(always)]
 pub fn hamming_bitwise_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
     assert_eq!(targets.len(), out.len());
 
@@ -629,6 +633,7 @@ pub fn hamming_bitwise_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [
     not(feature = "multiversion_x86"),
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
+#[inline(always)]
 pub fn hamming_bitwise_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
     assert_eq!(targets.len(), out.len());
 
@@ -685,6 +690,7 @@ pub fn hamming_bitwise_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [
 /// hamming_bitwise_slice_batch(&source, &targets, &mut distances);
 /// ```
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline(always)]
 pub fn hamming_bitwise_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
     assert_eq!(targets.len(), out.len());
 
@@ -700,7 +706,7 @@ pub fn hamming_bitwise_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [
     since = "1.1.0",
     note = "renamed to hamming_bitwise_slice; consider hamming_bitwise_array for fixed-size arrays under 2048 bits (10-100% faster) or hamming_bitwise_array_batch for bulk comparisons"
 )]
-#[inline]
+#[inline(always)]
 pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
     hamming_bitwise_slice(x, y)
 }
