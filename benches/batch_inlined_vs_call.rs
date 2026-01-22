@@ -8,14 +8,14 @@
 //! optimization as manually inlining the loop body.
 //!
 //! Run with: cargo bench --bench batch_inlined_vs_call
+//! Quick mode: cargo bench --bench batch_inlined_vs_call -- --quick
 
 mod helpers;
 
-use helpers::{random_bytes, random_bytes_array};
+use std::hint::black_box;
 
-fn main() {
-    divan::main();
-}
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use helpers::{random_bytes, random_bytes_array};
 
 const BATCH: usize = 64;
 
@@ -134,38 +134,85 @@ fn batch_body_inlined<const N: usize>(source: &[u8; N], targets: &[[u8; N]], out
 // Benchmarks
 // ============================================================================
 
-#[divan::bench(consts = [64, 96, 128, 256])]
-fn function_call<const N: usize>(bencher: divan::Bencher) {
-    let source: [u8; N] = random_bytes();
-    let targets: Vec<[u8; N]> = random_bytes_array(BATCH);
-    let mut out = vec![0u32; BATCH];
+fn function_call_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("function_call");
 
-    bencher.bench_local(|| {
-        batch_with_inline_hint(&source, &targets, &mut out);
-        out[0]
-    });
+    macro_rules! bench_size {
+        ($size:expr) => {{
+            let source: [u8; $size] = random_bytes();
+            let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
+            let mut out = vec![0u32; BATCH];
+            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+                bencher.iter(|| {
+                    batch_with_inline_hint(black_box(&source), black_box(&targets), &mut out);
+                    black_box(out[0])
+                })
+            });
+        }};
+    }
+
+    bench_size!(64);
+    bench_size!(96);
+    bench_size!(128);
+    bench_size!(256);
+
+    group.finish();
 }
 
-#[divan::bench(consts = [64, 96, 128, 256])]
-fn inline_always<const N: usize>(bencher: divan::Bencher) {
-    let source: [u8; N] = random_bytes();
-    let targets: Vec<[u8; N]> = random_bytes_array(BATCH);
-    let mut out = vec![0u32; BATCH];
+fn inline_always_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("inline_always");
 
-    bencher.bench_local(|| {
-        batch_with_inline_always(&source, &targets, &mut out);
-        out[0]
-    });
+    macro_rules! bench_size {
+        ($size:expr) => {{
+            let source: [u8; $size] = random_bytes();
+            let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
+            let mut out = vec![0u32; BATCH];
+            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+                bencher.iter(|| {
+                    batch_with_inline_always(black_box(&source), black_box(&targets), &mut out);
+                    black_box(out[0])
+                })
+            });
+        }};
+    }
+
+    bench_size!(64);
+    bench_size!(96);
+    bench_size!(128);
+    bench_size!(256);
+
+    group.finish();
 }
 
-#[divan::bench(consts = [64, 96, 128, 256])]
-fn body_inlined<const N: usize>(bencher: divan::Bencher) {
-    let source: [u8; N] = random_bytes();
-    let targets: Vec<[u8; N]> = random_bytes_array(BATCH);
-    let mut out = vec![0u32; BATCH];
+fn body_inlined_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("body_inlined");
 
-    bencher.bench_local(|| {
-        batch_body_inlined(&source, &targets, &mut out);
-        out[0]
-    });
+    macro_rules! bench_size {
+        ($size:expr) => {{
+            let source: [u8; $size] = random_bytes();
+            let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
+            let mut out = vec![0u32; BATCH];
+            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+                bencher.iter(|| {
+                    batch_body_inlined(black_box(&source), black_box(&targets), &mut out);
+                    black_box(out[0])
+                })
+            });
+        }};
+    }
+
+    bench_size!(64);
+    bench_size!(96);
+    bench_size!(128);
+    bench_size!(256);
+
+    group.finish();
 }
+
+criterion_group!(
+    benches,
+    function_call_benchmarks,
+    inline_always_benchmarks,
+    body_inlined_benchmarks
+);
+criterion_main!(benches);

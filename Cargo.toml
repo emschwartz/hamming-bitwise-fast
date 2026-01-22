@@ -20,7 +20,7 @@ multiversion_x86 = ["dep:multiversion"]
 multiversion = { version = "0.8", optional = true }
 
 [dev-dependencies]
-divan = "0.1"
+criterion = "0.8"
 hamming = "0.1.3"
 simsimd = "6.5.12"
 triple_accel = "0.4.0"

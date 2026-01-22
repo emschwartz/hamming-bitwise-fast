@@ -33,19 +33,18 @@
 //! vpopcntq %zmm1,%zmm1
 //! ```
 //!
-//! Run with: cargo bench --features multiversion_x86 --bench array_batch_vs_slice_batch
+//! Run with: cargo bench --features multiversion_x86 --bench array_batch_vs_slice_batch -- --quick
 
 mod helpers;
 
+use std::hint::black_box;
+
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use hamming_bitwise_fast::{
     hamming_bitwise_array, hamming_bitwise_array_batch, hamming_bitwise_slice,
     hamming_bitwise_slice_batch,
 };
 use helpers::{random_bytes, random_bytes_array, random_bytes_vec};
-
-fn main() {
-    divan::main();
-}
 
 const BATCH: usize = 1000;
 
@@ -53,83 +52,133 @@ const BATCH: usize = 1000;
 // Direct comparison: array batch vs slice batch
 // ============================================================================
 
-#[divan::bench(consts = [64, 128, 256])]
-fn array_batch<const N: usize>(bencher: divan::Bencher) {
-    let source: [u8; N] = random_bytes();
-    let targets: Vec<[u8; N]> = random_bytes_array(BATCH);
-    let mut out = vec![0u32; BATCH];
+fn array_batch_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("array_batch");
 
-    bencher.bench_local(|| {
-        hamming_bitwise_array_batch(&source, &targets, &mut out);
-        out[0]
-    });
+    macro_rules! bench_size {
+        ($size:expr) => {{
+            let source: [u8; $size] = random_bytes();
+            let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
+            let mut out = vec![0u32; BATCH];
+            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+                bencher.iter(|| {
+                    hamming_bitwise_array_batch(black_box(&source), black_box(&targets), &mut out);
+                    black_box(out[0])
+                })
+            });
+        }};
+    }
+
+    bench_size!(64);
+    bench_size!(128);
+    bench_size!(256);
+
+    group.finish();
 }
 
-#[divan::bench(args = [64, 128, 256])]
-fn slice_batch(bencher: divan::Bencher, bytes: usize) {
-    let source = random_bytes_vec(bytes);
-    let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(bytes)).collect();
-    let targets_refs: Vec<&[u8]> = targets.iter().map(|v| v.as_slice()).collect();
-    let mut out = vec![0u32; BATCH];
+fn slice_batch_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("slice_batch");
 
-    bencher.bench_local(|| {
-        hamming_bitwise_slice_batch(&source, &targets_refs, &mut out);
-        out[0]
-    });
+    for &size in &[64, 128, 256] {
+        let source = random_bytes_vec(size);
+        let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
+        let targets_refs: Vec<&[u8]> = targets.iter().map(|v| v.as_slice()).collect();
+        let mut out = vec![0u32; BATCH];
+
+        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |bencher, _| {
+            bencher.iter(|| {
+                hamming_bitwise_slice_batch(black_box(&source), black_box(&targets_refs), &mut out);
+                black_box(out[0])
+            })
+        });
+    }
+
+    group.finish();
 }
 
 // ============================================================================
 // Workaround: Convert arrays to slices for better performance
 // ============================================================================
 
-/// Shows how to get best performance with array data: convert to slices first.
-#[divan::bench(consts = [64, 128, 256])]
-fn array_as_slice_batch<const N: usize>(bencher: divan::Bencher) {
-    let source: [u8; N] = random_bytes();
-    let targets: Vec<[u8; N]> = random_bytes_array(BATCH);
-    // Convert arrays to slices - this overhead is minimal
-    let targets_refs: Vec<&[u8]> = targets.iter().map(|a| a.as_slice()).collect();
-    let mut out = vec![0u32; BATCH];
+fn array_as_slice_batch_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("array_as_slice_batch");
 
-    bencher.bench_local(|| {
-        hamming_bitwise_slice_batch(&source[..], &targets_refs, &mut out);
-        out[0]
-    });
+    macro_rules! bench_size {
+        ($size:expr) => {{
+            let source: [u8; $size] = random_bytes();
+            let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
+            // Convert arrays to slices - this overhead is minimal
+            let targets_refs: Vec<&[u8]> = targets.iter().map(|a| a.as_slice()).collect();
+            let mut out = vec![0u32; BATCH];
+            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+                bencher.iter(|| {
+                    hamming_bitwise_slice_batch(
+                        black_box(&source[..]),
+                        black_box(&targets_refs),
+                        &mut out,
+                    );
+                    black_box(out[0])
+                })
+            });
+        }};
+    }
+
+    bench_size!(64);
+    bench_size!(128);
+    bench_size!(256);
+
+    group.finish();
 }
 
 // ============================================================================
 // Iterator-based: process one at a time (avoids gather optimization)
 // ============================================================================
 
-/// Array iterator: calls hamming_bitwise_array in a loop.
-/// This should avoid gather instructions since each call is independent.
-#[divan::bench(consts = [64, 128, 256])]
-fn array_iter<const N: usize>(bencher: divan::Bencher) {
-    let source: [u8; N] = random_bytes();
-    let targets: Vec<[u8; N]> = random_bytes_array(BATCH);
-    let mut out = vec![0u32; BATCH];
+fn array_iter_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("array_iter");
 
-    bencher.bench_local(|| {
-        for (target, dist) in targets.iter().zip(out.iter_mut()) {
-            *dist = hamming_bitwise_array(&source, target);
-        }
-        out[0]
-    });
+    macro_rules! bench_size {
+        ($size:expr) => {{
+            let source: [u8; $size] = random_bytes();
+            let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
+            let mut out = vec![0u32; BATCH];
+            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+                bencher.iter(|| {
+                    for (target, dist) in black_box(&targets).iter().zip(out.iter_mut()) {
+                        *dist = hamming_bitwise_array(black_box(&source), target);
+                    }
+                    black_box(out[0])
+                })
+            });
+        }};
+    }
+
+    bench_size!(64);
+    bench_size!(128);
+    bench_size!(256);
+
+    group.finish();
 }
 
-/// Slice iterator: calls hamming_bitwise_slice in a loop.
-#[divan::bench(args = [64, 128, 256])]
-fn slice_iter(bencher: divan::Bencher, bytes: usize) {
-    let source = random_bytes_vec(bytes);
-    let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(bytes)).collect();
-    let mut out = vec![0u32; BATCH];
+fn slice_iter_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("slice_iter");
 
-    bencher.bench_local(|| {
-        for (target, dist) in targets.iter().zip(out.iter_mut()) {
-            *dist = hamming_bitwise_slice(&source, target);
-        }
-        out[0]
-    });
+    for &size in &[64, 128, 256] {
+        let source = random_bytes_vec(size);
+        let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
+        let mut out = vec![0u32; BATCH];
+
+        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |bencher, _| {
+            bencher.iter(|| {
+                for (target, dist) in black_box(&targets).iter().zip(out.iter_mut()) {
+                    *dist = hamming_bitwise_slice(black_box(&source), target);
+                }
+                black_box(out[0])
+            })
+        });
+    }
+
+    group.finish();
 }
 
 // ============================================================================
@@ -214,29 +263,89 @@ mod gather_demo {
         }
     }
 
-    /// Demonstrates the ~2-3x performance penalty from VPGATHERQQ.
-    #[divan::bench(consts = [64, 128, 256])]
-    pub fn without_black_box<const N: usize>(bencher: divan::Bencher) {
-        let source: [u8; N] = random_bytes();
-        let targets: Vec<[u8; N]> = random_bytes_array(BATCH);
-        let mut out = vec![0u32; BATCH];
+    pub fn without_black_box_benchmarks(c: &mut Criterion) {
+        let mut group = c.benchmark_group("gather_demo/without_black_box");
 
-        bencher.bench_local(|| {
-            batch_no_black_box(&source, &targets, &mut out);
-            out[0]
-        });
+        macro_rules! bench_size {
+            ($size:expr) => {{
+                let source: [u8; $size] = random_bytes();
+                let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
+                let mut out = vec![0u32; BATCH];
+                group.bench_with_input(
+                    BenchmarkId::from_parameter($size),
+                    &$size,
+                    |bencher, _| {
+                        bencher.iter(|| {
+                            batch_no_black_box(black_box(&source), black_box(&targets), &mut out);
+                            black_box(out[0])
+                        })
+                    },
+                );
+            }};
+        }
+
+        bench_size!(64);
+        bench_size!(128);
+        bench_size!(256);
+
+        group.finish();
     }
 
-    /// Shows the fix: black_box prevents gather and restores fast performance.
-    #[divan::bench(consts = [64, 128, 256])]
-    pub fn with_black_box<const N: usize>(bencher: divan::Bencher) {
-        let source: [u8; N] = random_bytes();
-        let targets: Vec<[u8; N]> = random_bytes_array(BATCH);
-        let mut out = vec![0u32; BATCH];
+    pub fn with_black_box_benchmarks(c: &mut Criterion) {
+        let mut group = c.benchmark_group("gather_demo/with_black_box");
 
-        bencher.bench_local(|| {
-            batch_with_black_box(&source, &targets, &mut out);
-            out[0]
-        });
+        macro_rules! bench_size {
+            ($size:expr) => {{
+                let source: [u8; $size] = random_bytes();
+                let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
+                let mut out = vec![0u32; BATCH];
+                group.bench_with_input(
+                    BenchmarkId::from_parameter($size),
+                    &$size,
+                    |bencher, _| {
+                        bencher.iter(|| {
+                            batch_with_black_box(black_box(&source), black_box(&targets), &mut out);
+                            black_box(out[0])
+                        })
+                    },
+                );
+            }};
+        }
+
+        bench_size!(64);
+        bench_size!(128);
+        bench_size!(256);
+
+        group.finish();
     }
 }
+
+#[cfg(all(
+    feature = "multiversion_x86",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+criterion_group!(
+    benches,
+    array_batch_benchmarks,
+    slice_batch_benchmarks,
+    array_as_slice_batch_benchmarks,
+    array_iter_benchmarks,
+    slice_iter_benchmarks,
+    gather_demo::without_black_box_benchmarks,
+    gather_demo::with_black_box_benchmarks
+);
+
+#[cfg(not(all(
+    feature = "multiversion_x86",
+    any(target_arch = "x86", target_arch = "x86_64")
+)))]
+criterion_group!(
+    benches,
+    array_batch_benchmarks,
+    slice_batch_benchmarks,
+    array_as_slice_batch_benchmarks,
+    array_iter_benchmarks,
+    slice_iter_benchmarks
+);
+
+criterion_main!(benches);

@@ -4,14 +4,14 @@
 //! potentially enabling better instruction scheduling and cache utilization.
 //!
 //! Run with: cargo bench --bench batch_vs_single
+//! Quick mode: cargo bench --bench batch_vs_single -- --quick
 
 mod helpers;
 
-use helpers::{random_bytes, random_bytes_array, random_bytes_vec};
+use std::hint::black_box;
 
-fn main() {
-    divan::main();
-}
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use helpers::{random_bytes, random_bytes_array, random_bytes_vec};
 
 const BATCH: usize = 64;
 
@@ -98,67 +98,108 @@ fn hamming_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
 // Array benchmarks
 // ============================================================================
 
-mod array {
-    use super::*;
+fn array_single_loop_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("array/single_loop");
 
-    #[divan::bench(consts = [64, 96, 128, 256])]
-    fn single_loop<const N: usize>(bencher: divan::Bencher) {
-        let source: [u8; N] = random_bytes();
-        let targets: Vec<[u8; N]> = random_bytes_array(BATCH);
-        let mut out = vec![0u32; BATCH];
-
-        bencher.bench_local(|| {
-            for (target, dist) in targets.iter().zip(out.iter_mut()) {
-                *dist = hamming_array(&source, target);
-            }
-            out[0]
-        });
+    macro_rules! bench_size {
+        ($size:expr) => {{
+            let source: [u8; $size] = random_bytes();
+            let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
+            let mut out = vec![0u32; BATCH];
+            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+                bencher.iter(|| {
+                    for (target, dist) in black_box(&targets).iter().zip(out.iter_mut()) {
+                        *dist = hamming_array(black_box(&source), target);
+                    }
+                    black_box(out[0])
+                })
+            });
+        }};
     }
 
-    #[divan::bench(consts = [64, 96, 128, 256])]
-    fn batch<const N: usize>(bencher: divan::Bencher) {
-        let source: [u8; N] = random_bytes();
-        let targets: Vec<[u8; N]> = random_bytes_array(BATCH);
-        let mut out = vec![0u32; BATCH];
+    bench_size!(64);
+    bench_size!(96);
+    bench_size!(128);
+    bench_size!(256);
 
-        bencher.bench_local(|| {
-            hamming_array_batch(&source, &targets, &mut out);
-            out[0]
-        });
+    group.finish();
+}
+
+fn array_batch_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("array/batch");
+
+    macro_rules! bench_size {
+        ($size:expr) => {{
+            let source: [u8; $size] = random_bytes();
+            let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
+            let mut out = vec![0u32; BATCH];
+            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+                bencher.iter(|| {
+                    hamming_array_batch(black_box(&source), black_box(&targets), &mut out);
+                    black_box(out[0])
+                })
+            });
+        }};
     }
+
+    bench_size!(64);
+    bench_size!(96);
+    bench_size!(128);
+    bench_size!(256);
+
+    group.finish();
 }
 
 // ============================================================================
 // Slice benchmarks
 // ============================================================================
 
-mod slice {
-    use super::*;
+fn slice_single_loop_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("slice/single_loop");
 
-    #[divan::bench(args = [64, 96, 128, 256])]
-    fn single_loop(bencher: divan::Bencher, bytes: usize) {
-        let source = random_bytes_vec(bytes);
-        let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(bytes)).collect();
+    for &size in &[64, 96, 128, 256] {
+        let source = random_bytes_vec(size);
+        let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
         let mut out = vec![0u32; BATCH];
 
-        bencher.bench_local(|| {
-            for (target, dist) in targets.iter().zip(out.iter_mut()) {
-                *dist = hamming_slice(&source, target);
-            }
-            out[0]
+        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |bencher, _| {
+            bencher.iter(|| {
+                for (target, dist) in black_box(&targets).iter().zip(out.iter_mut()) {
+                    *dist = hamming_slice(black_box(&source), target);
+                }
+                black_box(out[0])
+            })
         });
     }
 
-    #[divan::bench(args = [64, 96, 128, 256])]
-    fn batch(bencher: divan::Bencher, bytes: usize) {
-        let source = random_bytes_vec(bytes);
-        let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(bytes)).collect();
+    group.finish();
+}
+
+fn slice_batch_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("slice/batch");
+
+    for &size in &[64, 96, 128, 256] {
+        let source = random_bytes_vec(size);
+        let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
         let targets_refs: Vec<&[u8]> = targets.iter().map(|v| v.as_slice()).collect();
         let mut out = vec![0u32; BATCH];
 
-        bencher.bench_local(|| {
-            hamming_slice_batch(&source, &targets_refs, &mut out);
-            out[0]
+        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |bencher, _| {
+            bencher.iter(|| {
+                hamming_slice_batch(black_box(&source), black_box(&targets_refs), &mut out);
+                black_box(out[0])
+            })
         });
     }
+
+    group.finish();
 }
+
+criterion_group!(
+    benches,
+    array_single_loop_benchmarks,
+    array_batch_benchmarks,
+    slice_single_loop_benchmarks,
+    slice_batch_benchmarks
+);
+criterion_main!(benches);

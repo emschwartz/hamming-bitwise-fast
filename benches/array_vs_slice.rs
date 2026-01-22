@@ -4,14 +4,14 @@
 //! optimize bounds checks away, while slices require runtime length checks.
 //!
 //! Run with: cargo bench --bench array_vs_slice
+//! Quick mode: cargo bench --bench array_vs_slice -- --quick
 
 mod helpers;
 
-use helpers::{random_bytes, random_bytes_vec};
+use std::hint::black_box;
 
-fn main() {
-    divan::main();
-}
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use helpers::{random_bytes, random_bytes_vec};
 
 // ============================================================================
 // Implementations
@@ -74,16 +74,40 @@ fn hamming_slice(a: &[u8], b: &[u8]) -> u32 {
 // Benchmarks (sizes in bits: 512b, 768b, 1024b, 2048b = 64, 96, 128, 256 bytes)
 // ============================================================================
 
-#[divan::bench(consts = [64, 96, 128, 256])]
-fn array<const N: usize>(bencher: divan::Bencher) {
-    let a: [u8; N] = random_bytes();
-    let b: [u8; N] = random_bytes();
-    bencher.bench_local(|| hamming_array(&a, &b));
+fn array_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("array");
+
+    macro_rules! bench_size {
+        ($size:expr) => {{
+            let a: [u8; $size] = random_bytes();
+            let b: [u8; $size] = random_bytes();
+            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+                bencher.iter(|| black_box(hamming_array(black_box(&a), black_box(&b))))
+            });
+        }};
+    }
+
+    bench_size!(64);
+    bench_size!(96);
+    bench_size!(128);
+    bench_size!(256);
+
+    group.finish();
 }
 
-#[divan::bench(args = [64, 96, 128, 256])]
-fn slice(bencher: divan::Bencher, bytes: usize) {
-    let a = random_bytes_vec(bytes);
-    let b = random_bytes_vec(bytes);
-    bencher.bench_local(|| hamming_slice(&a, &b));
+fn slice_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("slice");
+
+    for &size in &[64, 96, 128, 256] {
+        let a = random_bytes_vec(size);
+        let b = random_bytes_vec(size);
+        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |bencher, _| {
+            bencher.iter(|| black_box(hamming_slice(black_box(&a), black_box(&b))))
+        });
+    }
+
+    group.finish();
 }
+
+criterion_group!(benches, array_benchmarks, slice_benchmarks);
+criterion_main!(benches);

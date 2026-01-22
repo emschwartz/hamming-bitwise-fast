@@ -4,15 +4,15 @@
 //! On x86, u64 chunk processing enables AVX-512 VPOPCNTDQ when available.
 //!
 //! Run with: cargo bench --bench u8_vs_u64
+//! Quick mode: cargo bench --bench u8_vs_u64 -- --quick
 //! Compare with: RUSTFLAGS="-C target-cpu=native" cargo bench --bench u8_vs_u64
 
 mod helpers;
 
-use helpers::random_bytes;
+use std::hint::black_box;
 
-fn main() {
-    divan::main();
-}
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use helpers::random_bytes;
 
 // ============================================================================
 // Implementations
@@ -57,16 +57,47 @@ fn hamming_u64_chunks<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
 // Benchmarks (sizes in bits: 512b, 768b, 1024b, 2048b = 64, 96, 128, 256 bytes)
 // ============================================================================
 
-#[divan::bench(consts = [64, 96, 128, 256])]
-fn u8_iter<const N: usize>(bencher: divan::Bencher) {
-    let a: [u8; N] = random_bytes();
-    let b: [u8; N] = random_bytes();
-    bencher.bench_local(|| hamming_u8_iter(&a, &b));
+fn u8_iter_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("u8_iter");
+
+    macro_rules! bench_size {
+        ($size:expr) => {{
+            let a: [u8; $size] = random_bytes();
+            let b: [u8; $size] = random_bytes();
+            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+                bencher.iter(|| black_box(hamming_u8_iter(black_box(&a), black_box(&b))))
+            });
+        }};
+    }
+
+    bench_size!(64);
+    bench_size!(96);
+    bench_size!(128);
+    bench_size!(256);
+
+    group.finish();
 }
 
-#[divan::bench(consts = [64, 96, 128, 256])]
-fn u64_chunks<const N: usize>(bencher: divan::Bencher) {
-    let a: [u8; N] = random_bytes();
-    let b: [u8; N] = random_bytes();
-    bencher.bench_local(|| hamming_u64_chunks(&a, &b));
+fn u64_chunks_benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("u64_chunks");
+
+    macro_rules! bench_size {
+        ($size:expr) => {{
+            let a: [u8; $size] = random_bytes();
+            let b: [u8; $size] = random_bytes();
+            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+                bencher.iter(|| black_box(hamming_u64_chunks(black_box(&a), black_box(&b))))
+            });
+        }};
+    }
+
+    bench_size!(64);
+    bench_size!(96);
+    bench_size!(128);
+    bench_size!(256);
+
+    group.finish();
 }
+
+criterion_group!(benches, u8_iter_benchmarks, u64_chunks_benchmarks);
+criterion_main!(benches);
