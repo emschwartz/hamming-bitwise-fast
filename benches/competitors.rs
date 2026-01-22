@@ -20,6 +20,40 @@ const BATCH: usize = 1000;
 const SIZES: &[usize] = &[64, 96, 128, 256];
 
 // ============================================================================
+// Baseline v1: Simple byte-by-byte iteration, no architecture targeting
+// ============================================================================
+
+/// Original v1 implementation - u64 chunking with remainder, no architecture targeting.
+/// This is what auto-vectorization gives us without multiversion or target-cpu flags.
+#[inline]
+fn hamming_v1(x: &[u8], y: &[u8]) -> u32 {
+    assert_eq!(x.len(), y.len());
+
+    // Process 8 bytes at a time using u64
+    let mut distance = x
+        .chunks_exact(8)
+        .zip(y.chunks_exact(8))
+        .map(|(x_chunk, y_chunk)| {
+            let x_val = u64::from_ne_bytes(x_chunk.try_into().unwrap());
+            let y_val = u64::from_ne_bytes(y_chunk.try_into().unwrap());
+            (x_val ^ y_val).count_ones()
+        })
+        .sum::<u32>();
+
+    if x.len() % 8 != 0 {
+        distance += x
+            .chunks_exact(8)
+            .remainder()
+            .iter()
+            .zip(y.chunks_exact(8).remainder())
+            .map(|(x_byte, y_byte)| (x_byte ^ y_byte).count_ones())
+            .sum::<u32>();
+    }
+
+    distance
+}
+
+// ============================================================================
 // Single comparison benchmarks
 // ============================================================================
 
@@ -112,6 +146,19 @@ fn single_benchmarks(c: &mut Criterion) {
                             black_box(&b),
                         ))
                     })
+                },
+            );
+        }
+
+        // hamming_bitwise_fast v1 (baseline - no arch targeting)
+        {
+            let a = random_bytes_vec(size);
+            let b = random_bytes_vec(size);
+            group.bench_with_input(
+                BenchmarkId::new("hamming_bitwise_fast_v1", format!("{}b", size * 8)),
+                &size,
+                |bencher, _| {
+                    bencher.iter(|| black_box(hamming_v1(black_box(&a), black_box(&b))))
                 },
             );
         }
@@ -392,6 +439,26 @@ fn batch_benchmarks(c: &mut Criterion) {
                                 black_box(&source),
                                 target,
                             );
+                        }
+                        black_box(out[0])
+                    })
+                },
+            );
+        }
+
+        // hamming_bitwise_fast_v1 batch (baseline - no arch targeting)
+        {
+            let source = random_bytes_vec(size);
+            let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
+            let mut out = vec![0u32; BATCH];
+
+            group.bench_with_input(
+                BenchmarkId::new("hamming_bitwise_fast_v1", format!("{}b", size * 8)),
+                &size,
+                |bencher, _| {
+                    bencher.iter(|| {
+                        for (i, target) in black_box(&targets).iter().enumerate() {
+                            out[i] = hamming_v1(black_box(&source), target);
                         }
                         black_box(out[0])
                     })
