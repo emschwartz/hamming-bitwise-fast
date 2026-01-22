@@ -70,17 +70,98 @@
 #[cfg(test)]
 mod tests;
 
-/// Generates three platform-specific versions of a function:
-/// 1. x86/x86_64 with `multiversion_x86` feature (runtime CPU dispatch)
-/// 2. x86/x86_64 without feature (compile-time optimization only)
-/// 3. All other platforms (simple implementation)
+// ============================================================================
+// Private implementation functions - no multiversion, just #[inline(always)]
+// These get inlined into the multiversion-generated functions.
+// ============================================================================
+
+/// x86 slice implementation using u64 chunks for auto-vectorization.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[inline(always)]
+fn slice_impl(a: &[u8], b: &[u8]) -> u32 {
+    assert_eq!(a.len(), b.len());
+    let a_chunks = a.chunks_exact(8);
+    let b_chunks = b.chunks_exact(8);
+
+    let main: u32 = a_chunks
+        .clone()
+        .zip(b_chunks.clone())
+        .map(|(a, b)| {
+            let a = u64::from_ne_bytes(a.try_into().unwrap());
+            let b = u64::from_ne_bytes(b.try_into().unwrap());
+            (a ^ b).count_ones()
+        })
+        .sum();
+
+    let rem: u32 = a_chunks
+        .remainder()
+        .iter()
+        .zip(b_chunks.remainder())
+        .map(|(a, b)| (a ^ b).count_ones())
+        .sum();
+
+    main + rem
+}
+
+/// x86 array implementation using u64 chunks for auto-vectorization.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[inline(always)]
+fn array_impl<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
+    let a_chunks = a.chunks_exact(8);
+    let b_chunks = b.chunks_exact(8);
+
+    let main: u32 = a_chunks
+        .clone()
+        .zip(b_chunks.clone())
+        .map(|(a, b)| {
+            let a = u64::from_ne_bytes(a.try_into().unwrap());
+            let b = u64::from_ne_bytes(b.try_into().unwrap());
+            (a ^ b).count_ones()
+        })
+        .sum();
+
+    let rem: u32 = a_chunks
+        .remainder()
+        .iter()
+        .zip(b_chunks.remainder())
+        .map(|(a, b)| (a ^ b).count_ones())
+        .sum();
+
+    main + rem
+}
+
+/// Non-x86 slice implementation using simple byte iteration.
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline(always)]
+fn slice_impl(a: &[u8], b: &[u8]) -> u32 {
+    assert_eq!(a.len(), b.len());
+    a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x ^ y).count_ones())
+        .sum()
+}
+
+/// Non-x86 array implementation using simple byte iteration.
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline(always)]
+fn array_impl<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
+    a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x ^ y).count_ones())
+        .sum()
+}
+
+// ============================================================================
+// Public API via macro-generated functions
+// ============================================================================
+
+/// Generates platform-specific versions of a function:
+/// - x86/x86_64 with `multiversion_x86` feature: runtime CPU dispatch
+/// - All other configurations: simple `#[inline(always)]`
 macro_rules! define_hamming_fn {
     (
         $(#[$doc:meta])*
-        pub fn $name:ident $(<const $N:ident : usize>)? ($($arg:ident : $arg_ty:ty),* $(,)?) $(-> $ret:ty)? {
-            x86: $x86_body:block
-            other: $other_body:block
-        }
+        pub fn $name:ident $(<const $N:ident : usize>)? ($($arg:ident : $arg_ty:ty),* $(,)?) $(-> $ret:ty)? $body:block
     ) => {
         $(#[$doc])*
         #[cfg(all(
@@ -96,20 +177,15 @@ macro_rules! define_hamming_fn {
             "x86+sse4.2+popcnt",
         ))]
         #[inline(always)]
-        pub fn $name $(<const $N : usize>)? ($($arg : $arg_ty),*) $(-> $ret)? $x86_body
+        pub fn $name $(<const $N : usize>)? ($($arg : $arg_ty),*) $(-> $ret)? $body
 
         $(#[$doc])*
-        #[cfg(all(
-            not(feature = "multiversion_x86"),
+        #[cfg(not(all(
+            feature = "multiversion_x86",
             any(target_arch = "x86", target_arch = "x86_64")
-        ))]
+        )))]
         #[inline(always)]
-        pub fn $name $(<const $N : usize>)? ($($arg : $arg_ty),*) $(-> $ret)? $x86_body
-
-        $(#[$doc])*
-        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-        #[inline(always)]
-        pub fn $name $(<const $N : usize>)? ($($arg : $arg_ty),*) $(-> $ret)? $other_body
+        pub fn $name $(<const $N : usize>)? ($($arg : $arg_ty),*) $(-> $ret)? $body
     };
 }
 
@@ -126,32 +202,7 @@ define_hamming_fn! {
     /// - [`hamming_bitwise_slice_batch`] - Much faster for one-to-many comparisons
     /// - [Platform Behavior](crate#platform-behavior) - Performance by platform
     pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
-        x86: {
-            assert_eq!(a.len(), b.len());
-            let a_chunks = a.chunks_exact(8);
-            let b_chunks = b.chunks_exact(8);
-
-            let main: u32 = a_chunks.clone().zip(b_chunks.clone())
-                .map(|(a, b)| {
-                    let a = u64::from_ne_bytes(a.try_into().unwrap());
-                    let b = u64::from_ne_bytes(b.try_into().unwrap());
-                    (a ^ b).count_ones()
-                })
-                .sum();
-
-            let rem: u32 = a_chunks.remainder().iter().zip(b_chunks.remainder())
-                .map(|(a, b)| (a ^ b).count_ones())
-                .sum();
-
-            main + rem
-        }
-        other: {
-            assert_eq!(a.len(), b.len());
-            a.iter()
-                .zip(b.iter())
-                .map(|(x, y)| (x ^ y).count_ones())
-                .sum()
-        }
+        slice_impl(a, b)
     }
 }
 
@@ -173,30 +224,7 @@ define_hamming_fn! {
     /// let distance = hamming_bitwise_array(&a, &b);
     /// ```
     pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
-        x86: {
-            let a_chunks = a.chunks_exact(8);
-            let b_chunks = b.chunks_exact(8);
-
-            let main: u32 = a_chunks.clone().zip(b_chunks.clone())
-                .map(|(a, b)| {
-                    let a = u64::from_ne_bytes(a.try_into().unwrap());
-                    let b = u64::from_ne_bytes(b.try_into().unwrap());
-                    (a ^ b).count_ones()
-                })
-                .sum();
-
-            let rem: u32 = a_chunks.remainder().iter().zip(b_chunks.remainder())
-                .map(|(a, b)| (a ^ b).count_ones())
-                .sum();
-
-            main + rem
-        }
-        other: {
-            a.iter()
-                .zip(b.iter())
-                .map(|(x, y)| (x ^ y).count_ones())
-                .sum()
-        }
+        array_impl(a, b)
     }
 }
 
@@ -231,23 +259,14 @@ define_hamming_fn! {
         targets: &[[u8; N]],
         out: &mut [u32],
     ) {
-        x86: {
-            assert_eq!(targets.len(), out.len());
+        assert_eq!(targets.len(), out.len());
 
-            // Call hamming_bitwise_array directly. The multiversion dispatch creates a
-            // boundary that prevents the compiler from seeing the contiguous `&[[u8; N]]`
-            // layout, avoiding slow VPGATHERQQ gather instructions. This approach is
-            // ~16% faster than using black_box to hide the memory layout.
-            for (target, dist) in targets.iter().zip(out.iter_mut()) {
-                *dist = hamming_bitwise_array(source, target);
-            }
-        }
-        other: {
-            assert_eq!(targets.len(), out.len());
-
-            for (target, dist) in targets.iter().zip(out.iter_mut()) {
-                *dist = hamming_bitwise_array(source, target);
-            }
+        // Call hamming_bitwise_array directly. The multiversion dispatch creates a
+        // boundary that prevents the compiler from seeing the contiguous `&[[u8; N]]`
+        // layout, avoiding slow VPGATHERQQ gather instructions. This approach is
+        // ~16% faster than using black_box to hide the memory layout.
+        for (target, dist) in targets.iter().zip(out.iter_mut()) {
+            *dist = hamming_bitwise_array(source, target);
         }
     }
 }
@@ -283,38 +302,13 @@ define_hamming_fn! {
     /// hamming_bitwise_slice_batch(&source, &targets, &mut distances);
     /// ```
     pub fn hamming_bitwise_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
-        x86: {
-            assert_eq!(targets.len(), out.len());
+        assert_eq!(targets.len(), out.len());
 
-            // For slices, the data layout (`&[&[u8]]`) isn't contiguous, so the compiler
-            // won't use gather instructions. Inlining the body is faster than calling
-            // the MV single function because it avoids dispatch overhead per iteration.
-            for (target, dist) in targets.iter().zip(out.iter_mut()) {
-                assert_eq!(source.len(), target.len());
-                let a_chunks = source.chunks_exact(8);
-                let b_chunks = target.chunks_exact(8);
-
-                let main: u32 = a_chunks.clone().zip(b_chunks.clone())
-                    .map(|(a, b)| {
-                        let a = u64::from_ne_bytes(a.try_into().unwrap());
-                        let b = u64::from_ne_bytes(b.try_into().unwrap());
-                        (a ^ b).count_ones()
-                    })
-                    .sum();
-
-                let rem: u32 = a_chunks.remainder().iter().zip(b_chunks.remainder())
-                    .map(|(a, b)| (a ^ b).count_ones())
-                    .sum();
-
-                *dist = main + rem;
-            }
-        }
-        other: {
-            assert_eq!(targets.len(), out.len());
-
-            for (target, dist) in targets.iter().zip(out.iter_mut()) {
-                *dist = hamming_bitwise_slice(source, target);
-            }
+        // For slices, the data layout (`&[&[u8]]`) isn't contiguous, so the compiler
+        // won't use gather instructions. Inlining the impl is faster than calling
+        // the MV single function because it avoids dispatch overhead per iteration.
+        for (target, dist) in targets.iter().zip(out.iter_mut()) {
+            *dist = slice_impl(source, target);
         }
     }
 }
