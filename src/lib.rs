@@ -235,6 +235,14 @@ define_hamming_fn! {
             assert_eq!(targets.len(), out.len());
 
             for (target, dist) in targets.iter().zip(out.iter_mut()) {
+                // IMPORTANT: Use black_box to prevent the compiler from using slow
+                // AVX-512 gather instructions. When the compiler sees `&[[u8; N]]`
+                // (contiguous array of arrays), it tries to process multiple targets
+                // in parallel using VPGATHERQQ, which is ~2-3x slower than simple
+                // contiguous loads. By hiding the target behind black_box, we force
+                // one-at-a-time processing with fast VMOVDQU64 loads.
+                let target: &[u8] = std::hint::black_box(target);
+
                 let a_chunks = source.chunks_exact(8);
                 let b_chunks = target.chunks_exact(8);
 

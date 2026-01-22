@@ -59,3 +59,7 @@ harness = false
 [[bench]]
 name = "vs_competitors"
 harness = false
+
+[[bench]]
+name = "array_batch_vs_slice_batch"
+harness = false
