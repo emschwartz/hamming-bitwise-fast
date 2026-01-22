@@ -102,40 +102,26 @@ mod benches {
     // Benchmarks
     // ============================================================================
 
-    fn static_compile_benchmarks(c: &mut Criterion) {
-        let mut group = c.benchmark_group("dispatch/static_rustflags");
+    fn benchmarks(c: &mut Criterion) {
+        let mut group = c.benchmark_group("dispatch");
 
         macro_rules! bench_size {
             ($size:expr) => {{
+                let bits = format!("{}b", $size * 8);
+
                 let a: [u8; $size] = random_bytes();
                 let b: [u8; $size] = random_bytes();
+
                 group.bench_with_input(
-                    BenchmarkId::from_parameter(format!("{}b", $size * 8)),
+                    BenchmarkId::new("static_rustflags", &bits),
                     &$size,
                     |bencher, _| {
                         bencher.iter(|| black_box(hamming_static(black_box(&a), black_box(&b))))
                     },
                 );
-            }};
-        }
 
-        bench_size!(64);
-        bench_size!(96);
-        bench_size!(128);
-        bench_size!(256);
-
-        group.finish();
-    }
-
-    fn multiversion_benchmarks(c: &mut Criterion) {
-        let mut group = c.benchmark_group("dispatch/runtime_multiversion");
-
-        macro_rules! bench_size {
-            ($size:expr) => {{
-                let a: [u8; $size] = random_bytes();
-                let b: [u8; $size] = random_bytes();
                 group.bench_with_input(
-                    BenchmarkId::from_parameter(format!("{}b", $size * 8)),
+                    BenchmarkId::new("runtime_multiversion", &bits),
                     &$size,
                     |bencher, _| {
                         bencher
@@ -153,11 +139,7 @@ mod benches {
         group.finish();
     }
 
-    criterion_group!(
-        multiversion_benches,
-        static_compile_benchmarks,
-        multiversion_benchmarks
-    );
+    criterion_group!(multiversion_benches, benchmarks);
 }
 
 #[cfg(all(

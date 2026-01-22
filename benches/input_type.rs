@@ -74,15 +74,23 @@ fn hamming_slice(a: &[u8], b: &[u8]) -> u32 {
 // Benchmarks
 // ============================================================================
 
-fn array_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("input_type/fixed_array");
+fn benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("input_type");
 
     macro_rules! bench_size {
         ($size:expr) => {{
-            let a: [u8; $size] = random_bytes();
-            let b: [u8; $size] = random_bytes();
-            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
-                bencher.iter(|| black_box(hamming_array(black_box(&a), black_box(&b))))
+            let bits = format!("{}b", $size * 8);
+
+            let a_arr: [u8; $size] = random_bytes();
+            let b_arr: [u8; $size] = random_bytes();
+            group.bench_with_input(BenchmarkId::new("fixed_array", &bits), &$size, |bencher, _| {
+                bencher.iter(|| black_box(hamming_array(black_box(&a_arr), black_box(&b_arr))))
+            });
+
+            let a_slice = random_bytes_vec($size);
+            let b_slice = random_bytes_vec($size);
+            group.bench_with_input(BenchmarkId::new("dynamic_slice", &bits), &$size, |bencher, _| {
+                bencher.iter(|| black_box(hamming_slice(black_box(&a_slice), black_box(&b_slice))))
             });
         }};
     }
@@ -95,19 +103,5 @@ fn array_benchmarks(c: &mut Criterion) {
     group.finish();
 }
 
-fn slice_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("input_type/dynamic_slice");
-
-    for &size in &[64, 96, 128, 256] {
-        let a = random_bytes_vec(size);
-        let b = random_bytes_vec(size);
-        group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", size * 8)), &size, |bencher, _| {
-            bencher.iter(|| black_box(hamming_slice(black_box(&a), black_box(&b))))
-        });
-    }
-
-    group.finish();
-}
-
-criterion_group!(benches, array_benchmarks, slice_benchmarks);
+criterion_group!(benches, benchmarks);
 criterion_main!(benches);

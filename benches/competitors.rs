@@ -24,7 +24,7 @@ const SIZES: &[usize] = &[64, 96, 128, 256];
 // ============================================================================
 
 fn single_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("competitors/single");
+    let mut group = c.benchmark_group("single");
 
     for &size in SIZES {
         group.throughput(Throughput::Bytes(size as u64 * 2));
@@ -182,7 +182,7 @@ fn single_benchmarks(c: &mut Criterion) {
 // ============================================================================
 
 fn batch_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("competitors/batch");
+    let mut group = c.benchmark_group("batch");
 
     for &size in SIZES {
         group.throughput(Throughput::Bytes(size as u64 * 2 * BATCH as u64));

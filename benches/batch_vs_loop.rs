@@ -95,25 +95,62 @@ fn hamming_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
 }
 
 // ============================================================================
-// Array benchmarks
+// Benchmarks
 // ============================================================================
 
-fn array_single_loop_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("batch_vs_loop/array_loop");
+fn benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("batch_vs_loop");
 
     macro_rules! bench_size {
         ($size:expr) => {{
-            let source: [u8; $size] = random_bytes();
-            let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
-            let mut out = vec![0u32; BATCH];
-            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
-                bencher.iter(|| {
-                    for (target, dist) in black_box(&targets).iter().zip(out.iter_mut()) {
-                        *dist = hamming_array(black_box(&source), target);
-                    }
-                    black_box(out[0])
-                })
-            });
+            let bits = format!("{}b", $size * 8);
+
+            // Array benchmarks
+            {
+                let source: [u8; $size] = random_bytes();
+                let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
+                let mut out = vec![0u32; BATCH];
+
+                group.bench_with_input(BenchmarkId::new("array_loop", &bits), &$size, |bencher, _| {
+                    bencher.iter(|| {
+                        for (target, dist) in black_box(&targets).iter().zip(out.iter_mut()) {
+                            *dist = hamming_array(black_box(&source), target);
+                        }
+                        black_box(out[0])
+                    })
+                });
+
+                group.bench_with_input(BenchmarkId::new("array_batch", &bits), &$size, |bencher, _| {
+                    bencher.iter(|| {
+                        hamming_array_batch(black_box(&source), black_box(&targets), &mut out);
+                        black_box(out[0])
+                    })
+                });
+            }
+
+            // Slice benchmarks
+            {
+                let source = random_bytes_vec($size);
+                let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec($size)).collect();
+                let targets_refs: Vec<&[u8]> = targets.iter().map(|v| v.as_slice()).collect();
+                let mut out = vec![0u32; BATCH];
+
+                group.bench_with_input(BenchmarkId::new("slice_loop", &bits), &$size, |bencher, _| {
+                    bencher.iter(|| {
+                        for (target, dist) in black_box(&targets).iter().zip(out.iter_mut()) {
+                            *dist = hamming_slice(black_box(&source), target);
+                        }
+                        black_box(out[0])
+                    })
+                });
+
+                group.bench_with_input(BenchmarkId::new("slice_batch", &bits), &$size, |bencher, _| {
+                    bencher.iter(|| {
+                        hamming_slice_batch(black_box(&source), black_box(&targets_refs), &mut out);
+                        black_box(out[0])
+                    })
+                });
+            }
         }};
     }
 
@@ -125,81 +162,5 @@ fn array_single_loop_benchmarks(c: &mut Criterion) {
     group.finish();
 }
 
-fn array_batch_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("batch_vs_loop/array_batch");
-
-    macro_rules! bench_size {
-        ($size:expr) => {{
-            let source: [u8; $size] = random_bytes();
-            let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
-            let mut out = vec![0u32; BATCH];
-            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
-                bencher.iter(|| {
-                    hamming_array_batch(black_box(&source), black_box(&targets), &mut out);
-                    black_box(out[0])
-                })
-            });
-        }};
-    }
-
-    bench_size!(64);
-    bench_size!(96);
-    bench_size!(128);
-    bench_size!(256);
-
-    group.finish();
-}
-
-// ============================================================================
-// Slice benchmarks
-// ============================================================================
-
-fn slice_single_loop_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("batch_vs_loop/slice_loop");
-
-    for &size in &[64, 96, 128, 256] {
-        let source = random_bytes_vec(size);
-        let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
-        let mut out = vec![0u32; BATCH];
-
-        group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", size * 8)), &size, |bencher, _| {
-            bencher.iter(|| {
-                for (target, dist) in black_box(&targets).iter().zip(out.iter_mut()) {
-                    *dist = hamming_slice(black_box(&source), target);
-                }
-                black_box(out[0])
-            })
-        });
-    }
-
-    group.finish();
-}
-
-fn slice_batch_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("batch_vs_loop/slice_batch");
-
-    for &size in &[64, 96, 128, 256] {
-        let source = random_bytes_vec(size);
-        let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
-        let targets_refs: Vec<&[u8]> = targets.iter().map(|v| v.as_slice()).collect();
-        let mut out = vec![0u32; BATCH];
-
-        group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", size * 8)), &size, |bencher, _| {
-            bencher.iter(|| {
-                hamming_slice_batch(black_box(&source), black_box(&targets_refs), &mut out);
-                black_box(out[0])
-            })
-        });
-    }
-
-    group.finish();
-}
-
-criterion_group!(
-    benches,
-    array_single_loop_benchmarks,
-    array_batch_benchmarks,
-    slice_single_loop_benchmarks,
-    slice_batch_benchmarks
-);
+criterion_group!(benches, benchmarks);
 criterion_main!(benches);

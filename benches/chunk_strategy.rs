@@ -57,35 +57,20 @@ fn hamming_u64_chunks<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
 // Benchmarks
 // ============================================================================
 
-fn u8_iter_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("chunk_strategy/byte_by_byte");
+fn benchmarks(c: &mut Criterion) {
+    let mut group = c.benchmark_group("chunk_strategy");
 
     macro_rules! bench_size {
         ($size:expr) => {{
             let a: [u8; $size] = random_bytes();
             let b: [u8; $size] = random_bytes();
-            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
+            let bits = format!("{}b", $size * 8);
+
+            group.bench_with_input(BenchmarkId::new("byte_by_byte", &bits), &$size, |bencher, _| {
                 bencher.iter(|| black_box(hamming_u8_iter(black_box(&a), black_box(&b))))
             });
-        }};
-    }
 
-    bench_size!(64);
-    bench_size!(96);
-    bench_size!(128);
-    bench_size!(256);
-
-    group.finish();
-}
-
-fn u64_chunks_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("chunk_strategy/u64_chunks");
-
-    macro_rules! bench_size {
-        ($size:expr) => {{
-            let a: [u8; $size] = random_bytes();
-            let b: [u8; $size] = random_bytes();
-            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::new("u64_chunks", &bits), &$size, |bencher, _| {
                 bencher.iter(|| black_box(hamming_u64_chunks(black_box(&a), black_box(&b))))
             });
         }};
@@ -99,5 +84,5 @@ fn u64_chunks_benchmarks(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, u8_iter_benchmarks, u64_chunks_benchmarks);
+criterion_group!(benches, benchmarks);
 criterion_main!(benches);
