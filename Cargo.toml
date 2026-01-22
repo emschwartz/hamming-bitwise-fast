@@ -33,33 +33,33 @@ hamming_rs = "0.2.22"
 hamming_rs = "0.2.22"
 
 [[bench]]
-name = "u8_vs_u64"
+name = "chunk_strategy"
 harness = false
 
 [[bench]]
-name = "array_vs_slice"
+name = "input_type"
 harness = false
 
 [[bench]]
-name = "multiversion"
+name = "dispatch"
 harness = false
 
 [[bench]]
-name = "batch_vs_single"
+name = "batch_vs_loop"
 harness = false
 
 [[bench]]
-name = "batch_inlined_vs_call"
+name = "inlining"
 harness = false
 
 [[bench]]
-name = "batch_multiversion"
+name = "multiversion_placement"
 harness = false
 
 [[bench]]
-name = "vs_competitors"
+name = "competitors"
 harness = false
 
 [[bench]]
-name = "array_batch_vs_slice_batch"
+name = "batch_input_type"
 harness = false

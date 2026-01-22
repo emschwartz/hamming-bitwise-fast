@@ -10,7 +10,7 @@
 //! - Calling MV single prevents slow VPGATHERQQ gather instructions
 //! - Body inlining triggers gather optimization (slow!)
 //!
-//! Run with: cargo bench --features multiversion_x86 --bench batch_multiversion -- --quick
+//! Run with: cargo bench --features multiversion_x86 --bench multiversion_placement -- --quick
 
 mod helpers;
 
@@ -367,7 +367,7 @@ mod mv {
 // ============================================================================
 
 fn slice_batch_calls_impl_bench(c: &mut Criterion) {
-    let mut group = c.benchmark_group("slice/calls_impl");
+    let mut group = c.benchmark_group("multiversion_placement/slice_calls_inline_fn");
 
     for size in [64, 128, 256] {
         let source = random_bytes_vec(size);
@@ -375,7 +375,7 @@ fn slice_batch_calls_impl_bench(c: &mut Criterion) {
         let targets_refs: Vec<&[u8]> = targets.iter().map(|v| v.as_slice()).collect();
         let mut out = vec![0u32; BATCH];
 
-        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |bencher, _| {
+        group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", size * 8)), &size, |bencher, _| {
             bencher.iter(|| {
                 mv::slice_batch_calls_impl(black_box(&source), black_box(&targets_refs), &mut out);
                 black_box(out[0])
@@ -387,7 +387,7 @@ fn slice_batch_calls_impl_bench(c: &mut Criterion) {
 }
 
 fn slice_batch_body_inlined_bench(c: &mut Criterion) {
-    let mut group = c.benchmark_group("slice/body_inlined");
+    let mut group = c.benchmark_group("multiversion_placement/slice_body_inlined");
 
     for size in [64, 128, 256] {
         let source = random_bytes_vec(size);
@@ -395,7 +395,7 @@ fn slice_batch_body_inlined_bench(c: &mut Criterion) {
         let targets_refs: Vec<&[u8]> = targets.iter().map(|v| v.as_slice()).collect();
         let mut out = vec![0u32; BATCH];
 
-        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |bencher, _| {
+        group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", size * 8)), &size, |bencher, _| {
             bencher.iter(|| {
                 mv::slice_batch_body_inlined(
                     black_box(&source),
@@ -415,14 +415,14 @@ fn slice_batch_body_inlined_bench(c: &mut Criterion) {
 // ============================================================================
 
 fn array_batch_calls_impl_bench(c: &mut Criterion) {
-    let mut group = c.benchmark_group("array/calls_impl");
+    let mut group = c.benchmark_group("multiversion_placement/array_calls_inline_fn_SLOW");
 
     macro_rules! bench_size {
         ($size:expr) => {{
             let source: [u8; $size] = random_bytes();
             let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
             let mut out = vec![0u32; BATCH];
-            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
                 bencher.iter(|| {
                     mv::array_batch_calls_impl(black_box(&source), black_box(&targets), &mut out);
                     black_box(out[0])
@@ -439,14 +439,14 @@ fn array_batch_calls_impl_bench(c: &mut Criterion) {
 }
 
 fn array_batch_body_inlined_bench(c: &mut Criterion) {
-    let mut group = c.benchmark_group("array/body_inlined");
+    let mut group = c.benchmark_group("multiversion_placement/array_body_inlined_SLOW");
 
     macro_rules! bench_size {
         ($size:expr) => {{
             let source: [u8; $size] = random_bytes();
             let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
             let mut out = vec![0u32; BATCH];
-            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
                 bencher.iter(|| {
                     mv::array_batch_body_inlined(
                         black_box(&source),
@@ -467,14 +467,14 @@ fn array_batch_body_inlined_bench(c: &mut Criterion) {
 }
 
 fn array_batch_calls_mv_single_bench(c: &mut Criterion) {
-    let mut group = c.benchmark_group("array/calls_mv_single");
+    let mut group = c.benchmark_group("multiversion_placement/array_calls_mv_single");
 
     macro_rules! bench_size {
         ($size:expr) => {{
             let source: [u8; $size] = random_bytes();
             let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
             let mut out = vec![0u32; BATCH];
-            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
                 bencher.iter(|| {
                     mv::array_batch_calls_mv_single(
                         black_box(&source),
@@ -495,14 +495,14 @@ fn array_batch_calls_mv_single_bench(c: &mut Criterion) {
 }
 
 fn array_batch_no_mv_bench(c: &mut Criterion) {
-    let mut group = c.benchmark_group("array/no_mv_on_batch");
+    let mut group = c.benchmark_group("multiversion_placement/array_plain_calls_mv_single");
 
     macro_rules! bench_size {
         ($size:expr) => {{
             let source: [u8; $size] = random_bytes();
             let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
             let mut out = vec![0u32; BATCH];
-            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
                 bencher.iter(|| {
                     mv::array_batch_no_mv(black_box(&source), black_box(&targets), &mut out);
                     black_box(out[0])
@@ -519,14 +519,14 @@ fn array_batch_no_mv_bench(c: &mut Criterion) {
 }
 
 fn array_batch_blackbox_bench(c: &mut Criterion) {
-    let mut group = c.benchmark_group("array/blackbox");
+    let mut group = c.benchmark_group("multiversion_placement/array_with_blackbox");
 
     macro_rules! bench_size {
         ($size:expr) => {{
             let source: [u8; $size] = random_bytes();
             let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
             let mut out = vec![0u32; BATCH];
-            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
                 bencher.iter(|| {
                     mv::array_batch_blackbox(black_box(&source), black_box(&targets), &mut out);
                     black_box(out[0])

@@ -33,7 +33,7 @@
 //! vpopcntq %zmm1,%zmm1
 //! ```
 //!
-//! Run with: cargo bench --features multiversion_x86 --bench array_batch_vs_slice_batch -- --quick
+//! Run with: cargo bench --features multiversion_x86 --bench batch_input_type -- --quick
 
 mod helpers;
 
@@ -53,14 +53,14 @@ const BATCH: usize = 1000;
 // ============================================================================
 
 fn array_batch_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("array_batch");
+    let mut group = c.benchmark_group("batch_input_type/array_batch");
 
     macro_rules! bench_size {
         ($size:expr) => {{
             let source: [u8; $size] = random_bytes();
             let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
             let mut out = vec![0u32; BATCH];
-            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
                 bencher.iter(|| {
                     hamming_bitwise_array_batch(black_box(&source), black_box(&targets), &mut out);
                     black_box(out[0])
@@ -77,7 +77,7 @@ fn array_batch_benchmarks(c: &mut Criterion) {
 }
 
 fn slice_batch_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("slice_batch");
+    let mut group = c.benchmark_group("batch_input_type/slice_batch");
 
     for &size in &[64, 128, 256] {
         let source = random_bytes_vec(size);
@@ -85,7 +85,7 @@ fn slice_batch_benchmarks(c: &mut Criterion) {
         let targets_refs: Vec<&[u8]> = targets.iter().map(|v| v.as_slice()).collect();
         let mut out = vec![0u32; BATCH];
 
-        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |bencher, _| {
+        group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", size * 8)), &size, |bencher, _| {
             bencher.iter(|| {
                 hamming_bitwise_slice_batch(black_box(&source), black_box(&targets_refs), &mut out);
                 black_box(out[0])
@@ -101,7 +101,7 @@ fn slice_batch_benchmarks(c: &mut Criterion) {
 // ============================================================================
 
 fn array_as_slice_batch_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("array_as_slice_batch");
+    let mut group = c.benchmark_group("batch_input_type/array_via_slice_batch");
 
     macro_rules! bench_size {
         ($size:expr) => {{
@@ -110,7 +110,7 @@ fn array_as_slice_batch_benchmarks(c: &mut Criterion) {
             // Convert arrays to slices - this overhead is minimal
             let targets_refs: Vec<&[u8]> = targets.iter().map(|a| a.as_slice()).collect();
             let mut out = vec![0u32; BATCH];
-            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
                 bencher.iter(|| {
                     hamming_bitwise_slice_batch(
                         black_box(&source[..]),
@@ -135,14 +135,14 @@ fn array_as_slice_batch_benchmarks(c: &mut Criterion) {
 // ============================================================================
 
 fn array_iter_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("array_iter");
+    let mut group = c.benchmark_group("batch_input_type/array_loop_single");
 
     macro_rules! bench_size {
         ($size:expr) => {{
             let source: [u8; $size] = random_bytes();
             let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
             let mut out = vec![0u32; BATCH];
-            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
                 bencher.iter(|| {
                     for (target, dist) in black_box(&targets).iter().zip(out.iter_mut()) {
                         *dist = hamming_bitwise_array(black_box(&source), target);
@@ -161,14 +161,14 @@ fn array_iter_benchmarks(c: &mut Criterion) {
 }
 
 fn slice_iter_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("slice_iter");
+    let mut group = c.benchmark_group("batch_input_type/slice_loop_single");
 
     for &size in &[64, 128, 256] {
         let source = random_bytes_vec(size);
         let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
         let mut out = vec![0u32; BATCH];
 
-        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |bencher, _| {
+        group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", size * 8)), &size, |bencher, _| {
             bencher.iter(|| {
                 for (target, dist) in black_box(&targets).iter().zip(out.iter_mut()) {
                     *dist = hamming_bitwise_slice(black_box(&source), target);
@@ -264,7 +264,7 @@ mod gather_demo {
     }
 
     pub fn without_black_box_benchmarks(c: &mut Criterion) {
-        let mut group = c.benchmark_group("gather_demo/without_black_box");
+        let mut group = c.benchmark_group("gather_demo/no_blackbox_slow_gather");
 
         macro_rules! bench_size {
             ($size:expr) => {{
@@ -272,7 +272,7 @@ mod gather_demo {
                 let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
                 let mut out = vec![0u32; BATCH];
                 group.bench_with_input(
-                    BenchmarkId::from_parameter($size),
+                    BenchmarkId::from_parameter(format!("{}b", $size * 8)),
                     &$size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -292,7 +292,7 @@ mod gather_demo {
     }
 
     pub fn with_black_box_benchmarks(c: &mut Criterion) {
-        let mut group = c.benchmark_group("gather_demo/with_black_box");
+        let mut group = c.benchmark_group("gather_demo/blackbox_fast_loads");
 
         macro_rules! bench_size {
             ($size:expr) => {{
@@ -300,7 +300,7 @@ mod gather_demo {
                 let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
                 let mut out = vec![0u32; BATCH];
                 group.bench_with_input(
-                    BenchmarkId::from_parameter($size),
+                    BenchmarkId::from_parameter(format!("{}b", $size * 8)),
                     &$size,
                     |bencher, _| {
                         bencher.iter(|| {

@@ -3,8 +3,8 @@
 //! Key insight: Batch APIs allow the compiler to optimize the entire loop,
 //! potentially enabling better instruction scheduling and cache utilization.
 //!
-//! Run with: cargo bench --bench batch_vs_single
-//! Quick mode: cargo bench --bench batch_vs_single -- --quick
+//! Run with: cargo bench --bench batch_vs_loop
+//! Quick mode: cargo bench --bench batch_vs_loop -- --quick
 
 mod helpers;
 
@@ -99,14 +99,14 @@ fn hamming_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
 // ============================================================================
 
 fn array_single_loop_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("array/single_loop");
+    let mut group = c.benchmark_group("batch_vs_loop/array_loop");
 
     macro_rules! bench_size {
         ($size:expr) => {{
             let source: [u8; $size] = random_bytes();
             let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
             let mut out = vec![0u32; BATCH];
-            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
                 bencher.iter(|| {
                     for (target, dist) in black_box(&targets).iter().zip(out.iter_mut()) {
                         *dist = hamming_array(black_box(&source), target);
@@ -126,14 +126,14 @@ fn array_single_loop_benchmarks(c: &mut Criterion) {
 }
 
 fn array_batch_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("array/batch");
+    let mut group = c.benchmark_group("batch_vs_loop/array_batch");
 
     macro_rules! bench_size {
         ($size:expr) => {{
             let source: [u8; $size] = random_bytes();
             let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
             let mut out = vec![0u32; BATCH];
-            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
                 bencher.iter(|| {
                     hamming_array_batch(black_box(&source), black_box(&targets), &mut out);
                     black_box(out[0])
@@ -155,14 +155,14 @@ fn array_batch_benchmarks(c: &mut Criterion) {
 // ============================================================================
 
 fn slice_single_loop_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("slice/single_loop");
+    let mut group = c.benchmark_group("batch_vs_loop/slice_loop");
 
     for &size in &[64, 96, 128, 256] {
         let source = random_bytes_vec(size);
         let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
         let mut out = vec![0u32; BATCH];
 
-        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |bencher, _| {
+        group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", size * 8)), &size, |bencher, _| {
             bencher.iter(|| {
                 for (target, dist) in black_box(&targets).iter().zip(out.iter_mut()) {
                     *dist = hamming_slice(black_box(&source), target);
@@ -176,7 +176,7 @@ fn slice_single_loop_benchmarks(c: &mut Criterion) {
 }
 
 fn slice_batch_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("slice/batch");
+    let mut group = c.benchmark_group("batch_vs_loop/slice_batch");
 
     for &size in &[64, 96, 128, 256] {
         let source = random_bytes_vec(size);
@@ -184,7 +184,7 @@ fn slice_batch_benchmarks(c: &mut Criterion) {
         let targets_refs: Vec<&[u8]> = targets.iter().map(|v| v.as_slice()).collect();
         let mut out = vec![0u32; BATCH];
 
-        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |bencher, _| {
+        group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", size * 8)), &size, |bencher, _| {
             bencher.iter(|| {
                 hamming_slice_batch(black_box(&source), black_box(&targets_refs), &mut out);
                 black_box(out[0])

@@ -3,9 +3,9 @@
 //! Key insight: On ARM, simple u8 iteration auto-vectorizes well with NEON.
 //! On x86, u64 chunk processing enables AVX-512 VPOPCNTDQ when available.
 //!
-//! Run with: cargo bench --bench u8_vs_u64
-//! Quick mode: cargo bench --bench u8_vs_u64 -- --quick
-//! Compare with: RUSTFLAGS="-C target-cpu=native" cargo bench --bench u8_vs_u64
+//! Run with: cargo bench --bench chunk_strategy
+//! Quick mode: cargo bench --bench chunk_strategy -- --quick
+//! Compare with: RUSTFLAGS="-C target-cpu=native" cargo bench --bench chunk_strategy
 
 mod helpers;
 
@@ -54,17 +54,17 @@ fn hamming_u64_chunks<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
 }
 
 // ============================================================================
-// Benchmarks (sizes in bits: 512b, 768b, 1024b, 2048b = 64, 96, 128, 256 bytes)
+// Benchmarks
 // ============================================================================
 
 fn u8_iter_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("u8_iter");
+    let mut group = c.benchmark_group("chunk_strategy/byte_by_byte");
 
     macro_rules! bench_size {
         ($size:expr) => {{
             let a: [u8; $size] = random_bytes();
             let b: [u8; $size] = random_bytes();
-            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
                 bencher.iter(|| black_box(hamming_u8_iter(black_box(&a), black_box(&b))))
             });
         }};
@@ -79,13 +79,13 @@ fn u8_iter_benchmarks(c: &mut Criterion) {
 }
 
 fn u64_chunks_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("u64_chunks");
+    let mut group = c.benchmark_group("chunk_strategy/u64_chunks");
 
     macro_rules! bench_size {
         ($size:expr) => {{
             let a: [u8; $size] = random_bytes();
             let b: [u8; $size] = random_bytes();
-            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
                 bencher.iter(|| black_box(hamming_u64_chunks(black_box(&a), black_box(&b))))
             });
         }};

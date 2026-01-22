@@ -6,8 +6,8 @@
 //! - triple_accel: SIMD-accelerated string metrics
 //! - hamming_rs: x86-only AVX2/SSE implementation
 //!
-//! Run with: cargo bench --bench vs_competitors
-//! Quick mode: cargo bench --bench vs_competitors -- --quick
+//! Run with: cargo bench --bench competitors
+//! Quick mode: cargo bench --bench competitors -- --quick
 
 mod helpers;
 
@@ -24,7 +24,7 @@ const SIZES: &[usize] = &[64, 96, 128, 256];
 // ============================================================================
 
 fn single_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("single");
+    let mut group = c.benchmark_group("competitors/single");
 
     for &size in SIZES {
         group.throughput(Throughput::Bytes(size as u64 * 2));
@@ -35,7 +35,7 @@ fn single_benchmarks(c: &mut Criterion) {
                 let a: [u8; 64] = random_bytes();
                 let b: [u8; 64] = random_bytes();
                 group.bench_with_input(
-                    BenchmarkId::new("hamming_bitwise_array", size),
+                    BenchmarkId::new("hamming_bitwise_array", format!("{}b", size * 8)),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -51,7 +51,7 @@ fn single_benchmarks(c: &mut Criterion) {
                 let a: [u8; 96] = random_bytes();
                 let b: [u8; 96] = random_bytes();
                 group.bench_with_input(
-                    BenchmarkId::new("hamming_bitwise_array", size),
+                    BenchmarkId::new("hamming_bitwise_array", format!("{}b", size * 8)),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -67,7 +67,7 @@ fn single_benchmarks(c: &mut Criterion) {
                 let a: [u8; 128] = random_bytes();
                 let b: [u8; 128] = random_bytes();
                 group.bench_with_input(
-                    BenchmarkId::new("hamming_bitwise_array", size),
+                    BenchmarkId::new("hamming_bitwise_array", format!("{}b", size * 8)),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -83,7 +83,7 @@ fn single_benchmarks(c: &mut Criterion) {
                 let a: [u8; 256] = random_bytes();
                 let b: [u8; 256] = random_bytes();
                 group.bench_with_input(
-                    BenchmarkId::new("hamming_bitwise_array", size),
+                    BenchmarkId::new("hamming_bitwise_array", format!("{}b", size * 8)),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -103,7 +103,7 @@ fn single_benchmarks(c: &mut Criterion) {
             let a = random_bytes_vec(size);
             let b = random_bytes_vec(size);
             group.bench_with_input(
-                BenchmarkId::new("hamming_bitwise_slice", size),
+                BenchmarkId::new("hamming_bitwise_slice", format!("{}b", size * 8)),
                 &size,
                 |bencher, _| {
                     bencher.iter(|| {
@@ -120,7 +120,7 @@ fn single_benchmarks(c: &mut Criterion) {
         {
             let a = random_bytes_vec(size);
             let b = random_bytes_vec(size);
-            group.bench_with_input(BenchmarkId::new("simsimd", size), &size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::new("simsimd", format!("{}b", size * 8)), &size, |bencher, _| {
                 bencher.iter(|| {
                     black_box(simsimd::BinarySimilarity::hamming(
                         black_box(&a),
@@ -135,7 +135,7 @@ fn single_benchmarks(c: &mut Criterion) {
             let a = random_bytes_vec(size);
             let b = random_bytes_vec(size);
             group.bench_with_input(
-                BenchmarkId::new("hamming_crate", size),
+                BenchmarkId::new("hamming_crate", format!("{}b", size * 8)),
                 &size,
                 |bencher, _| {
                     bencher.iter(|| {
@@ -150,7 +150,7 @@ fn single_benchmarks(c: &mut Criterion) {
             let a = random_bytes_vec(size);
             let b = random_bytes_vec(size);
             group.bench_with_input(
-                BenchmarkId::new("triple_accel", size),
+                BenchmarkId::new("triple_accel", format!("{}b", size * 8)),
                 &size,
                 |bencher, _| {
                     bencher.iter(|| black_box(triple_accel::hamming(black_box(&a), black_box(&b))))
@@ -164,7 +164,7 @@ fn single_benchmarks(c: &mut Criterion) {
             let a = random_bytes_vec(size);
             let b = random_bytes_vec(size);
             group.bench_with_input(
-                BenchmarkId::new("hamming_rs", size),
+                BenchmarkId::new("hamming_rs", format!("{}b", size * 8)),
                 &size,
                 |bencher, _| {
                     bencher
@@ -182,7 +182,7 @@ fn single_benchmarks(c: &mut Criterion) {
 // ============================================================================
 
 fn batch_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("batch");
+    let mut group = c.benchmark_group("competitors/batch");
 
     for &size in SIZES {
         group.throughput(Throughput::Bytes(size as u64 * 2 * BATCH as u64));
@@ -194,7 +194,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                 let targets: Vec<[u8; 64]> = random_bytes_array(BATCH);
                 let mut out = vec![0u32; BATCH];
                 group.bench_with_input(
-                    BenchmarkId::new("hamming_bitwise_array_batch", size),
+                    BenchmarkId::new("hamming_bitwise_array_batch", format!("{}b", size * 8)),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -213,7 +213,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                 let targets: Vec<[u8; 96]> = random_bytes_array(BATCH);
                 let mut out = vec![0u32; BATCH];
                 group.bench_with_input(
-                    BenchmarkId::new("hamming_bitwise_array_batch", size),
+                    BenchmarkId::new("hamming_bitwise_array_batch", format!("{}b", size * 8)),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -232,7 +232,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                 let targets: Vec<[u8; 128]> = random_bytes_array(BATCH);
                 let mut out = vec![0u32; BATCH];
                 group.bench_with_input(
-                    BenchmarkId::new("hamming_bitwise_array_batch", size),
+                    BenchmarkId::new("hamming_bitwise_array_batch", format!("{}b", size * 8)),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -251,7 +251,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                 let targets: Vec<[u8; 256]> = random_bytes_array(BATCH);
                 let mut out = vec![0u32; BATCH];
                 group.bench_with_input(
-                    BenchmarkId::new("hamming_bitwise_array_batch", size),
+                    BenchmarkId::new("hamming_bitwise_array_batch", format!("{}b", size * 8)),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -275,7 +275,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                 let targets: Vec<[u8; 64]> = random_bytes_array(BATCH);
                 let mut out = vec![0u32; BATCH];
                 group.bench_with_input(
-                    BenchmarkId::new("hamming_bitwise_array_loop", size),
+                    BenchmarkId::new("hamming_bitwise_array_loop", format!("{}b", size * 8)),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -295,7 +295,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                 let targets: Vec<[u8; 96]> = random_bytes_array(BATCH);
                 let mut out = vec![0u32; BATCH];
                 group.bench_with_input(
-                    BenchmarkId::new("hamming_bitwise_array_loop", size),
+                    BenchmarkId::new("hamming_bitwise_array_loop", format!("{}b", size * 8)),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -315,7 +315,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                 let targets: Vec<[u8; 128]> = random_bytes_array(BATCH);
                 let mut out = vec![0u32; BATCH];
                 group.bench_with_input(
-                    BenchmarkId::new("hamming_bitwise_array_loop", size),
+                    BenchmarkId::new("hamming_bitwise_array_loop", format!("{}b", size * 8)),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -335,7 +335,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                 let targets: Vec<[u8; 256]> = random_bytes_array(BATCH);
                 let mut out = vec![0u32; BATCH];
                 group.bench_with_input(
-                    BenchmarkId::new("hamming_bitwise_array_loop", size),
+                    BenchmarkId::new("hamming_bitwise_array_loop", format!("{}b", size * 8)),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -361,7 +361,7 @@ fn batch_benchmarks(c: &mut Criterion) {
             let mut out = vec![0u32; BATCH];
 
             group.bench_with_input(
-                BenchmarkId::new("hamming_bitwise_slice_batch", size),
+                BenchmarkId::new("hamming_bitwise_slice_batch", format!("{}b", size * 8)),
                 &size,
                 |bencher, _| {
                     bencher.iter(|| {
@@ -383,7 +383,7 @@ fn batch_benchmarks(c: &mut Criterion) {
             let mut out = vec![0u32; BATCH];
 
             group.bench_with_input(
-                BenchmarkId::new("hamming_bitwise_slice_loop", size),
+                BenchmarkId::new("hamming_bitwise_slice_loop", format!("{}b", size * 8)),
                 &size,
                 |bencher, _| {
                     bencher.iter(|| {
@@ -405,7 +405,7 @@ fn batch_benchmarks(c: &mut Criterion) {
             let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
             let mut out = vec![0f64; BATCH];
 
-            group.bench_with_input(BenchmarkId::new("simsimd", size), &size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::new("simsimd", format!("{}b", size * 8)), &size, |bencher, _| {
                 bencher.iter(|| {
                     for (i, target) in black_box(&targets).iter().enumerate() {
                         out[i] = simsimd::BinarySimilarity::hamming(black_box(&source), target)
@@ -423,7 +423,7 @@ fn batch_benchmarks(c: &mut Criterion) {
             let mut out = vec![0u64; BATCH];
 
             group.bench_with_input(
-                BenchmarkId::new("hamming_crate", size),
+                BenchmarkId::new("hamming_crate", format!("{}b", size * 8)),
                 &size,
                 |bencher, _| {
                     bencher.iter(|| {
@@ -444,7 +444,7 @@ fn batch_benchmarks(c: &mut Criterion) {
             let mut out = vec![0u32; BATCH];
 
             group.bench_with_input(
-                BenchmarkId::new("triple_accel", size),
+                BenchmarkId::new("triple_accel", format!("{}b", size * 8)),
                 &size,
                 |bencher, _| {
                     bencher.iter(|| {
@@ -465,7 +465,7 @@ fn batch_benchmarks(c: &mut Criterion) {
             let mut out = vec![0u64; BATCH];
 
             group.bench_with_input(
-                BenchmarkId::new("hamming_rs", size),
+                BenchmarkId::new("hamming_rs", format!("{}b", size * 8)),
                 &size,
                 |bencher, _| {
                     bencher.iter(|| {

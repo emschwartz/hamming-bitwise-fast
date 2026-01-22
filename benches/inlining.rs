@@ -7,8 +7,8 @@
 //! This benchmark measures whether `#[inline(always)]` achieves the same
 //! optimization as manually inlining the loop body.
 //!
-//! Run with: cargo bench --bench batch_inlined_vs_call
-//! Quick mode: cargo bench --bench batch_inlined_vs_call -- --quick
+//! Run with: cargo bench --bench inlining
+//! Quick mode: cargo bench --bench inlining -- --quick
 
 mod helpers;
 
@@ -135,14 +135,14 @@ fn batch_body_inlined<const N: usize>(source: &[u8; N], targets: &[[u8; N]], out
 // ============================================================================
 
 fn function_call_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("function_call");
+    let mut group = c.benchmark_group("inlining/inline_hint");
 
     macro_rules! bench_size {
         ($size:expr) => {{
             let source: [u8; $size] = random_bytes();
             let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
             let mut out = vec![0u32; BATCH];
-            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
                 bencher.iter(|| {
                     batch_with_inline_hint(black_box(&source), black_box(&targets), &mut out);
                     black_box(out[0])
@@ -160,14 +160,14 @@ fn function_call_benchmarks(c: &mut Criterion) {
 }
 
 fn inline_always_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("inline_always");
+    let mut group = c.benchmark_group("inlining/inline_always");
 
     macro_rules! bench_size {
         ($size:expr) => {{
             let source: [u8; $size] = random_bytes();
             let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
             let mut out = vec![0u32; BATCH];
-            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
                 bencher.iter(|| {
                     batch_with_inline_always(black_box(&source), black_box(&targets), &mut out);
                     black_box(out[0])
@@ -185,14 +185,14 @@ fn inline_always_benchmarks(c: &mut Criterion) {
 }
 
 fn body_inlined_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("body_inlined");
+    let mut group = c.benchmark_group("inlining/manual_body_inline");
 
     macro_rules! bench_size {
         ($size:expr) => {{
             let source: [u8; $size] = random_bytes();
             let targets: Vec<[u8; $size]> = random_bytes_array(BATCH);
             let mut out = vec![0u32; BATCH];
-            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
                 bencher.iter(|| {
                     batch_body_inlined(black_box(&source), black_box(&targets), &mut out);
                     black_box(out[0])

@@ -4,10 +4,10 @@
 //!
 //! ```sh
 //! # Run 1: Default (SSE2) vs multiversion
-//! cargo bench --bench multiversion --features multiversion_x86 -- --quick
+//! cargo bench --bench dispatch --features multiversion_x86 -- --quick
 //!
 //! # Run 2: Native (all CPU features) vs multiversion
-//! RUSTFLAGS="-C target-cpu=native" cargo bench --bench multiversion --features multiversion_x86 -- --quick
+//! RUSTFLAGS="-C target-cpu=native" cargo bench --bench dispatch --features multiversion_x86 -- --quick
 //! ```
 //!
 //! This answers:
@@ -20,13 +20,17 @@
     feature = "multiversion_x86",
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
-mod benches {
-    mod helpers;
+mod helpers;
 
+#[cfg(all(
+    feature = "multiversion_x86",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+mod benches {
     use std::hint::black_box;
 
     use criterion::{criterion_group, BenchmarkId, Criterion};
-    use helpers::random_bytes;
+    use crate::helpers::random_bytes;
 
     // ============================================================================
     // Static implementation (affected by RUSTFLAGS)
@@ -99,14 +103,14 @@ mod benches {
     // ============================================================================
 
     fn static_compile_benchmarks(c: &mut Criterion) {
-        let mut group = c.benchmark_group("static_compile");
+        let mut group = c.benchmark_group("dispatch/static_rustflags");
 
         macro_rules! bench_size {
             ($size:expr) => {{
                 let a: [u8; $size] = random_bytes();
                 let b: [u8; $size] = random_bytes();
                 group.bench_with_input(
-                    BenchmarkId::from_parameter($size),
+                    BenchmarkId::from_parameter(format!("{}b", $size * 8)),
                     &$size,
                     |bencher, _| {
                         bencher.iter(|| black_box(hamming_static(black_box(&a), black_box(&b))))
@@ -124,14 +128,14 @@ mod benches {
     }
 
     fn multiversion_benchmarks(c: &mut Criterion) {
-        let mut group = c.benchmark_group("multiversion");
+        let mut group = c.benchmark_group("dispatch/runtime_multiversion");
 
         macro_rules! bench_size {
             ($size:expr) => {{
                 let a: [u8; $size] = random_bytes();
                 let b: [u8; $size] = random_bytes();
                 group.bench_with_input(
-                    BenchmarkId::from_parameter($size),
+                    BenchmarkId::from_parameter(format!("{}b", $size * 8)),
                     &$size,
                     |bencher, _| {
                         bencher

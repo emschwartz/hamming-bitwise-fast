@@ -3,8 +3,8 @@
 //! Key insight: Fixed-size arrays allow the compiler to unroll loops and
 //! optimize bounds checks away, while slices require runtime length checks.
 //!
-//! Run with: cargo bench --bench array_vs_slice
-//! Quick mode: cargo bench --bench array_vs_slice -- --quick
+//! Run with: cargo bench --bench input_type
+//! Quick mode: cargo bench --bench input_type -- --quick
 
 mod helpers;
 
@@ -71,17 +71,17 @@ fn hamming_slice(a: &[u8], b: &[u8]) -> u32 {
 }
 
 // ============================================================================
-// Benchmarks (sizes in bits: 512b, 768b, 1024b, 2048b = 64, 96, 128, 256 bytes)
+// Benchmarks
 // ============================================================================
 
 fn array_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("array");
+    let mut group = c.benchmark_group("input_type/fixed_array");
 
     macro_rules! bench_size {
         ($size:expr) => {{
             let a: [u8; $size] = random_bytes();
             let b: [u8; $size] = random_bytes();
-            group.bench_with_input(BenchmarkId::from_parameter($size), &$size, |bencher, _| {
+            group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", $size * 8)), &$size, |bencher, _| {
                 bencher.iter(|| black_box(hamming_array(black_box(&a), black_box(&b))))
             });
         }};
@@ -96,12 +96,12 @@ fn array_benchmarks(c: &mut Criterion) {
 }
 
 fn slice_benchmarks(c: &mut Criterion) {
-    let mut group = c.benchmark_group("slice");
+    let mut group = c.benchmark_group("input_type/dynamic_slice");
 
     for &size in &[64, 96, 128, 256] {
         let a = random_bytes_vec(size);
         let b = random_bytes_vec(size);
-        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |bencher, _| {
+        group.bench_with_input(BenchmarkId::from_parameter(format!("{}b", size * 8)), &size, |bencher, _| {
             bencher.iter(|| black_box(hamming_slice(black_box(&a), black_box(&b))))
         });
     }
