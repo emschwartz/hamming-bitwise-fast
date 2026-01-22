@@ -59,3 +59,7 @@ harness = false
 [[bench]]
 name = "q7_batch_slice"
 harness = false
+
+[[bench]]
+name = "q8_inlining"
+harness = false
