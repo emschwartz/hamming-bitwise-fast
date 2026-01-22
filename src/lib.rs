@@ -234,31 +234,12 @@ define_hamming_fn! {
         x86: {
             assert_eq!(targets.len(), out.len());
 
+            // Call hamming_bitwise_array directly. The multiversion dispatch creates a
+            // boundary that prevents the compiler from seeing the contiguous `&[[u8; N]]`
+            // layout, avoiding slow VPGATHERQQ gather instructions. This approach is
+            // ~16% faster than using black_box to hide the memory layout.
             for (target, dist) in targets.iter().zip(out.iter_mut()) {
-                // IMPORTANT: Use black_box to prevent the compiler from using slow
-                // AVX-512 gather instructions. When the compiler sees `&[[u8; N]]`
-                // (contiguous array of arrays), it tries to process multiple targets
-                // in parallel using VPGATHERQQ, which is ~2-3x slower than simple
-                // contiguous loads. By hiding the target behind black_box, we force
-                // one-at-a-time processing with fast VMOVDQU64 loads.
-                let target: &[u8] = std::hint::black_box(target);
-
-                let a_chunks = source.chunks_exact(8);
-                let b_chunks = target.chunks_exact(8);
-
-                let main: u32 = a_chunks.clone().zip(b_chunks.clone())
-                    .map(|(a, b)| {
-                        let a = u64::from_ne_bytes(a.try_into().unwrap());
-                        let b = u64::from_ne_bytes(b.try_into().unwrap());
-                        (a ^ b).count_ones()
-                    })
-                    .sum();
-
-                let rem: u32 = a_chunks.remainder().iter().zip(b_chunks.remainder())
-                    .map(|(a, b)| (a ^ b).count_ones())
-                    .sum();
-
-                *dist = main + rem;
+                *dist = hamming_bitwise_array(source, target);
             }
         }
         other: {
@@ -305,6 +286,9 @@ define_hamming_fn! {
         x86: {
             assert_eq!(targets.len(), out.len());
 
+            // For slices, the data layout (`&[&[u8]]`) isn't contiguous, so the compiler
+            // won't use gather instructions. Inlining the body is faster than calling
+            // the MV single function because it avoids dispatch overhead per iteration.
             for (target, dist) in targets.iter().zip(out.iter_mut()) {
                 assert_eq!(source.len(), target.len());
                 let a_chunks = source.chunks_exact(8);
