@@ -33,33 +33,29 @@ hamming_rs = "0.2.22"
 hamming_rs = "0.2.22"
 
 [[bench]]
-name = "q1_data_types"
+name = "u8_vs_u64"
 harness = false
 
 [[bench]]
-name = "q2_arrays_vs_slices"
+name = "array_vs_slice"
 harness = false
 
 [[bench]]
-name = "q3_simd_dispatch"
+name = "multiversion"
 harness = false
 
 [[bench]]
-name = "q4_batching"
+name = "batch_vs_single"
 harness = false
 
 [[bench]]
-name = "q5_vs_competitors"
+name = "batch_inlined_vs_call"
 harness = false
 
 [[bench]]
-name = "q6_slice_multiversion"
+name = "batch_multiversion"
 harness = false
 
 [[bench]]
-name = "q7_batch_slice"
-harness = false
-
-[[bench]]
-name = "q8_inlining"
+name = "vs_competitors"
 harness = false
