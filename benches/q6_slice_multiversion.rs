@@ -2,68 +2,110 @@
 //!
 //! Key questions:
 //! - Does runtime CPU dispatch benefit slice operations?
-//! - How does multiversion slice compare to the array version?
-//! - Is the dispatch overhead worth it for slices?
+//! - How does the u64 chunks approach compare to simple iteration?
 //!
-//! Run with: cargo bench --bench q6_slice_multiversion --features multiversion_x86
-//! Filter by size: cargo bench --bench q6_slice_multiversion -- 1024
+//! Run with: cargo bench --bench q6_slice_multiversion
+//! Compare with: RUSTFLAGS="-C target-cpu=native" cargo bench --bench q6_slice_multiversion
 
 mod helpers;
 
-use criterion::{criterion_group, criterion_main, AxisScale, BenchmarkId, Criterion, PlotConfiguration};
-use std::hint::black_box;
-use hamming_bitwise_fast::{hamming_bitwise_array, hamming_bitwise_slice};
-use helpers::*;
+use helpers::{random_bytes, random_bytes_vec};
 
-fn slice_multiversion(c: &mut Criterion) {
-    let mut group = c.benchmark_group("slice_multiversion");
-    group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
-
-    for size in BIT_SIZES {
-        let bytes = size.bytes();
-        let a = random_bytes_vec(bytes);
-        let b = random_bytes_vec(bytes);
-
-        // Original v1 slice implementation (no multiversion, u64 chunked)
-        group.bench_with_input(
-            BenchmarkId::new("hamming_bitwise_slice_v1", size),
-            &size,
-            |bench, _| {
-                bench.iter(|| hamming_bitwise_slice_v1(black_box(&a), black_box(&b)));
-            },
-        );
-
-        // Current slice (multiversion when feature enabled)
-        group.bench_with_input(
-            BenchmarkId::new("hamming_bitwise_slice", size),
-            &size,
-            |bench, _| {
-                bench.iter(|| hamming_bitwise_slice(black_box(&a), black_box(&b)));
-            },
-        );
-    }
-
-    // Also compare against array version for reference
-    macro_rules! bench_array {
-        ($($bits:literal => $bytes:literal),+ $(,)?) => {
-            $(
-                {
-                    let a: [u8; $bytes] = random_bytes();
-                    let b: [u8; $bytes] = random_bytes();
-                    group.bench_function(
-                        BenchmarkId::new("hamming_bitwise_array", concat!(stringify!($bits), "b")),
-                        |bench| {
-                            bench.iter(|| hamming_bitwise_array(black_box(&a), black_box(&b)));
-                        },
-                    );
-                }
-            )+
-        };
-    }
-    bench_array!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
-
-    group.finish();
+fn main() {
+    divan::main();
 }
 
-criterion_group!(benches, slice_multiversion);
-criterion_main!(benches);
+// ============================================================================
+// Slice implementations
+// ============================================================================
+
+/// Simple byte-by-byte iteration.
+#[inline]
+fn slice_iter(a: &[u8], b: &[u8]) -> u32 {
+    assert_eq!(a.len(), b.len());
+    a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x ^ y).count_ones())
+        .sum()
+}
+
+/// u64 chunks with remainder (what the library uses on x86).
+#[inline]
+fn slice_u64_chunks(a: &[u8], b: &[u8]) -> u32 {
+    assert_eq!(a.len(), b.len());
+    let a_chunks = a.chunks_exact(8);
+    let b_chunks = b.chunks_exact(8);
+
+    let main: u32 = a_chunks
+        .clone()
+        .zip(b_chunks.clone())
+        .map(|(a, b)| {
+            let a = u64::from_ne_bytes(a.try_into().unwrap());
+            let b = u64::from_ne_bytes(b.try_into().unwrap());
+            (a ^ b).count_ones()
+        })
+        .sum();
+
+    let rem: u32 = a_chunks
+        .remainder()
+        .iter()
+        .zip(b_chunks.remainder())
+        .map(|(a, b)| (a ^ b).count_ones())
+        .sum();
+
+    main + rem
+}
+
+// ============================================================================
+// Array implementation for comparison
+// ============================================================================
+
+#[inline]
+fn array_u64_chunks<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
+    let a_chunks = a.chunks_exact(8);
+    let b_chunks = b.chunks_exact(8);
+
+    let main: u32 = a_chunks
+        .clone()
+        .zip(b_chunks.clone())
+        .map(|(a, b)| {
+            let a = u64::from_ne_bytes(a.try_into().unwrap());
+            let b = u64::from_ne_bytes(b.try_into().unwrap());
+            (a ^ b).count_ones()
+        })
+        .sum();
+
+    let rem: u32 = a_chunks
+        .remainder()
+        .iter()
+        .zip(b_chunks.remainder())
+        .map(|(a, b)| (a ^ b).count_ones())
+        .sum();
+
+    main + rem
+}
+
+// ============================================================================
+// Benchmarks
+// ============================================================================
+
+#[divan::bench(args = [64, 96, 128, 256])]
+fn slice_iter_bench(bencher: divan::Bencher, bytes: usize) {
+    let a = random_bytes_vec(bytes);
+    let b = random_bytes_vec(bytes);
+    bencher.bench_local(|| slice_iter(&a, &b));
+}
+
+#[divan::bench(args = [64, 96, 128, 256])]
+fn slice_u64_chunks_bench(bencher: divan::Bencher, bytes: usize) {
+    let a = random_bytes_vec(bytes);
+    let b = random_bytes_vec(bytes);
+    bencher.bench_local(|| slice_u64_chunks(&a, &b));
+}
+
+#[divan::bench(consts = [64, 96, 128, 256])]
+fn array_u64_chunks_bench<const N: usize>(bencher: divan::Bencher) {
+    let a: [u8; N] = random_bytes();
+    let b: [u8; N] = random_bytes();
+    bencher.bench_local(|| array_u64_chunks(&a, &b));
+}

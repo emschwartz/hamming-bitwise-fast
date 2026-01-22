@@ -12,87 +12,71 @@
 //!
 //! # With target-cpu=native (uses all CPU features)
 //! RUSTFLAGS="-C target-cpu=native" cargo bench --bench q3_simd_dispatch
-//!
-//! # With multiversion feature (runtime dispatch)
-//! cargo bench --bench q3_simd_dispatch --features multiversion
 //! ```
 //!
 //! Run with: cargo bench --bench q3_simd_dispatch
 
 mod helpers;
 
-use criterion::{criterion_group, criterion_main, AxisScale, BenchmarkId, Criterion, PlotConfiguration};
-use std::hint::black_box;
-use hamming_bitwise_fast::hamming_bitwise_array;
-use helpers::*;
+use helpers::random_bytes;
 
-fn simd_dispatch(c: &mut Criterion) {
-    let mut group = c.benchmark_group("simd_dispatch");
-    group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
-
-    // ========================================================================
-    // Auto-vectorized (baseline): What the compiler does by default
-    // This is affected by RUSTFLAGS="-C target-cpu=native"
-    // ========================================================================
-    macro_rules! bench_u8_iter {
-        ($($bits:literal => $bytes:literal),+ $(,)?) => {
-            $(
-                {
-                    let a: [u8; $bytes] = random_bytes();
-                    let b: [u8; $bytes] = random_bytes();
-                    group.bench_function(
-                        BenchmarkId::new("auto_u8_iter", concat!(stringify!($bits), "b")),
-                        |bench| {
-                            bench.iter(|| hamming_u8_iter(black_box(&a), black_box(&b)));
-                        },
-                    );
-                }
-            )+
-        };
-    }
-    bench_u8_iter!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
-
-    macro_rules! bench_u8_chunks {
-        ($($bits:literal => $bytes:literal),+ $(,)?) => {
-            $(
-                {
-                    let a: [u8; $bytes] = random_bytes();
-                    let b: [u8; $bytes] = random_bytes();
-                    group.bench_function(
-                        BenchmarkId::new("auto_u8_chunks", concat!(stringify!($bits), "b")),
-                        |bench| {
-                            bench.iter(|| hamming_u8_chunks(black_box(&a), black_box(&b)));
-                        },
-                    );
-                }
-            )+
-        };
-    }
-    bench_u8_chunks!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
-
-    // ========================================================================
-    // Library's hamming_bitwise_array: Uses multiversion when feature enabled
-    // ========================================================================
-    macro_rules! bench_library {
-        ($($bits:literal => $bytes:literal),+ $(,)?) => {
-            $(
-                {
-                    let a: [u8; $bytes] = random_bytes();
-                    let b: [u8; $bytes] = random_bytes();
-                    group.bench_function(
-                        BenchmarkId::new("hamming_bitwise_array", concat!(stringify!($bits), "b")),
-                        |bench| {
-                            bench.iter(|| hamming_bitwise_array(black_box(&a), black_box(&b)));
-                        },
-                    );
-                }
-            )+
-        };
-    }
-    bench_library!(512 => 64, 768 => 96, 1024 => 128, 2048 => 256);
-
-    group.finish();
+fn main() {
+    divan::main();
 }
 
-criterion_group!(benches, simd_dispatch);
-criterion_main!(benches);
+// ============================================================================
+// Implementations to benchmark
+// ============================================================================
+
+/// Byte-by-byte iteration - simple, auto-vectorizes well on ARM.
+#[inline]
+fn hamming_iter<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
+    a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x ^ y).count_ones())
+        .sum()
+}
+
+/// Process as u64 chunks - enables AVX-512 VPOPCNTDQ on x86.
+#[inline]
+fn hamming_u64_chunks<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
+    let a_chunks = a.chunks_exact(8);
+    let b_chunks = b.chunks_exact(8);
+
+    let main: u32 = a_chunks
+        .clone()
+        .zip(b_chunks.clone())
+        .map(|(a, b)| {
+            let a = u64::from_ne_bytes(a.try_into().unwrap());
+            let b = u64::from_ne_bytes(b.try_into().unwrap());
+            (a ^ b).count_ones()
+        })
+        .sum();
+
+    let rem: u32 = a_chunks
+        .remainder()
+        .iter()
+        .zip(b_chunks.remainder())
+        .map(|(a, b)| (a ^ b).count_ones())
+        .sum();
+
+    main + rem
+}
+
+// ============================================================================
+// Benchmarks
+// ============================================================================
+
+#[divan::bench(consts = [64, 96, 128, 256])]
+fn iter<const N: usize>(bencher: divan::Bencher) {
+    let a: [u8; N] = random_bytes();
+    let b: [u8; N] = random_bytes();
+    bencher.bench_local(|| hamming_iter(&a, &b));
+}
+
+#[divan::bench(consts = [64, 96, 128, 256])]
+fn u64_chunks<const N: usize>(bencher: divan::Bencher) {
+    let a: [u8; N] = random_bytes();
+    let b: [u8; N] = random_bytes();
+    bencher.bench_local(|| hamming_u64_chunks(&a, &b));
+}
