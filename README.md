@@ -10,7 +10,7 @@ A second round of benchmarking uncovered more optimizations and yielded even fas
 
 **Note:** This is for comparing bit-vectors, _not_ for comparing strings.
 
-_\* Zero dependencies by default. The optional `multiversion_x86` feature adds the [`multiversion`](https://crates.io/crates/multiversion) crate for runtime CPU detection on x86. See [SIMD on x86](#simd-on-x86) for details._
+_\* Zero dependencies by default. The optional `multiversion_x86` feature adds the [`multiversion`](https://crates.io/crates/multiversion) crate for runtime SIMD support detection on x86 CPUs. See [SIMD on x86](#simd-on-x86) for details._
 
 ## Usage
 
@@ -118,49 +118,62 @@ RUSTFLAGS="-C target-cpu=x86-64-v4 -C target-feature=+avx512vpopcntdq" cargo bui
 
 ## Benchmarks
 
-Comparing `hamming_bitwise_array`, `hamming_bitwise_slice`, and batch APIs against competitor crates:
-- [`simsimd`](https://crates.io/crates/simsimd) ![simsimd](https://img.shields.io/crates/d/simsimd)
-- [`hamming`](https://crates.io/crates/hamming) ![hamming](https://img.shields.io/crates/d/hamming)
-- [`triple_accel`](https://crates.io/crates/triple_accel) ![triple_accel](https://img.shields.io/crates/d/triple_accel)
-- [`hamming_rs`](https://crates.io/crates/hamming_rs) ![hamming_rs](https://img.shields.io/crates/d/hamming_rs) (x86 only)
+Comparing against other Hamming distance crates:
+[`simsimd`](https://crates.io/crates/simsimd),
+[`hamming`](https://crates.io/crates/hamming),
+[`triple_accel`](https://crates.io/crates/triple_accel),
+[`hamming_rs`](https://crates.io/crates/hamming_rs) (x86 only)
 
 ### Single Comparison
 
-#### MacBook Pro M2 Max (ARM)
+#### ARM (Apple M2 Max)
 
-##### 1024-bit
-![Single 1024b - MacBook](results/violin-single-macbook-1024b.svg)
+| Function | 64 bytes | 128 bytes | 256 bytes |
+|----------|----------|-----------|-----------|
+| **hamming_bitwise_array** | **1.2ns** | **2.2ns** | **4.3ns** |
+| **hamming_bitwise_slice** | **1.8ns** | **2.7ns** | **5.0ns** |
+| simsimd | 4.7ns | 6.5ns | 10.4ns |
+| triple_accel | 7.4ns | 11.9ns | 21.2ns |
+| hamming | 7.5ns | 11.9ns | 18.6ns |
 
-##### 2048-bit
-![Single 2048b - MacBook](results/violin-single-macbook-2048b.svg)
+#### x86 (with `multiversion_x86` feature)
 
-#### Linode x86 (with `multiversion_x86` feature)
+| Function | 64 bytes | 128 bytes | 256 bytes |
+|----------|----------|-----------|-----------|
+| **hamming_bitwise_array** | **2.4ns** | **2.7ns** | **4.4ns** |
+| **hamming_bitwise_slice** | **2.4ns** | **3.1ns** | **4.0ns** |
+| triple_accel | 3.5ns | 4.0ns | 5.5ns |
+| simsimd | 3.8ns | 4.5ns | 5.9ns |
+| hamming_rs | 15ns | 24ns | 41ns |
+| hamming | 47ns | 94ns | 29ns |
 
-##### 1024-bit
-![Single 1024b - Linode multiversion](results/violin-single-linode-multiversion-1024b.svg)
+### Batch Comparison (1000 comparisons)
 
-##### 2048-bit
-![Single 2048b - Linode multiversion](results/violin-single-linode-multiversion-2048b.svg)
+The `_batch` functions are faster than calling single functions in a loop on x86 with `multiversion_x86` because CPU dispatch happens once per batch instead of once per comparison.
 
-### Batch Comparison (1000 comparisons, divide time by 1000)
+#### ARM (Apple M2 Max)
 
-Compares our batch API (`_batch` suffix) against running single comparisons in a loop (`_loop` suffix).
+| Function | 64 bytes | 128 bytes | 256 bytes |
+|----------|----------|-----------|-----------|
+| **hamming_bitwise_array_batch** | **1.3µs** | **2.2µs** | **4.5µs** |
+| hamming_bitwise_array (loop) | 1.4µs | 2.5µs | 4.7µs |
+| **hamming_bitwise_slice_batch** | **1.8µs** | **2.7µs** | **4.8µs** |
+| hamming_bitwise_slice (loop) | 2.2µs | 3.1µs | 5.6µs |
+| simsimd | 4.8µs | 6.6µs | 10.5µs |
+| triple_accel | 7.7µs | 12.0µs | 21.1µs |
 
-#### MacBook Pro M2 Max (ARM)
+#### x86 (with `multiversion_x86` feature)
 
-##### 1024-bit
-![Batch 1024b - MacBook](results/violin-batch-macbook-1024b.svg)
-
-##### 2048-bit
-![Batch 2048b - MacBook](results/violin-batch-macbook-2048b.svg)
-
-#### Linode x86 (with `multiversion_x86` feature)
-
-##### 1024-bit
-![Batch 1024b - Linode multiversion](results/violin-batch-linode-multiversion-1024b.svg)
-
-##### 2048-bit
-![Batch 2048b - Linode multiversion](results/violin-batch-linode-multiversion-2048b.svg)
+| Function | 64 bytes | 128 bytes | 256 bytes |
+|----------|----------|-----------|-----------|
+| **hamming_bitwise_slice_batch** | **1.4µs** | **2.2µs** | **3.7µs** |
+| hamming_bitwise_slice (loop) | 2.7µs | 3.5µs | 5.2µs |
+| **hamming_bitwise_array_batch** | **2.4µs** | **4.7µs** | **9.4µs** |
+| hamming_bitwise_array (loop) | 3.5µs | 4.6µs | 11.7µs |
+| simsimd | 4.2µs | 4.8µs | 5.7µs |
+| triple_accel | 4.2µs | 4.5µs | 5.5µs |
+| hamming_rs | 15µs | 23µs | 41µs |
+| hamming | 47µs | 94µs | 29µs |
 
 ### Running benchmarks
 
@@ -168,14 +181,12 @@ Compares our batch API (`_batch` suffix) against running single comparisons in a
 # Run all benchmarks
 cargo bench
 
-# Run only 1024b and 2048b competitor benchmarks
-cargo bench --bench q5_vs_competitors -- "1024b|2048b"
+# Run competitor comparison
+cargo bench --bench vs_competitors
 
 # With multiversion (x86 only)
-cargo bench --features multiversion_x86 --bench q5_vs_competitors -- "1024b|2048b"
+cargo bench --features multiversion_x86 --bench vs_competitors
 ```
-
-Then open `target/criterion/report/index.html` to view the results
 
 ## License
 
