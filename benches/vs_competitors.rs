@@ -10,7 +10,7 @@
 
 mod helpers;
 
-use hamming_bitwise_fast::{hamming_bitwise_array, hamming_bitwise_slice};
+use hamming_bitwise_fast;
 use helpers::{random_bytes, random_bytes_array, random_bytes_vec};
 
 fn main() {
@@ -27,17 +27,17 @@ mod single {
     use super::*;
 
     #[divan::bench(consts = [64, 96, 128, 256])]
-    fn hamming_bitwise_fast_array<const N: usize>(bencher: divan::Bencher) {
+    fn hamming_bitwise_array<const N: usize>(bencher: divan::Bencher) {
         let a: [u8; N] = random_bytes();
         let b: [u8; N] = random_bytes();
-        bencher.bench_local(|| hamming_bitwise_array(&a, &b));
+        bencher.bench_local(|| hamming_bitwise_fast::hamming_bitwise_array(&a, &b));
     }
 
     #[divan::bench(args = [64, 96, 128, 256])]
-    fn hamming_bitwise_fast_slice(bencher: divan::Bencher, bytes: usize) {
+    fn hamming_bitwise_slice(bencher: divan::Bencher, bytes: usize) {
         let a = random_bytes_vec(bytes);
         let b = random_bytes_vec(bytes);
-        bencher.bench_local(|| hamming_bitwise_slice(&a, &b));
+        bencher.bench_local(|| hamming_bitwise_fast::hamming_bitwise_slice(&a, &b));
     }
 
     #[divan::bench(args = [64, 96, 128, 256])]
@@ -97,7 +97,7 @@ mod batch {
 
         bencher.bench_local(|| {
             for (i, target) in targets.iter().enumerate() {
-                out[i] = hamming_bitwise_array(&source, target);
+                out[i] = hamming_bitwise_fast::hamming_bitwise_array(&source, target);
             }
             out[0]
         });
@@ -124,7 +124,7 @@ mod batch {
 
         bencher.bench_local(|| {
             for (i, target) in targets.iter().enumerate() {
-                out[i] = hamming_bitwise_slice(&source, target);
+                out[i] = hamming_bitwise_fast::hamming_bitwise_slice(&source, target);
             }
             out[0]
         });
