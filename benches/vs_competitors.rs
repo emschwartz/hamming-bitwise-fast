@@ -10,10 +10,7 @@
 
 mod helpers;
 
-use hamming_bitwise_fast::{
-    hamming_bitwise_array, hamming_bitwise_array_batch, hamming_bitwise_slice,
-    hamming_bitwise_slice_batch,
-};
+use hamming_bitwise_fast::{hamming_bitwise_array, hamming_bitwise_slice};
 use helpers::{random_bytes, random_bytes_array, random_bytes_vec};
 
 fn main() {
@@ -81,26 +78,54 @@ mod batch {
     use super::*;
 
     #[divan::bench(consts = [64, 96, 128, 256])]
-    fn hamming_bitwise_fast_array<const N: usize>(bencher: divan::Bencher) {
+    fn hamming_bitwise_array_batch<const N: usize>(bencher: divan::Bencher) {
         let source: [u8; N] = random_bytes();
         let targets: Vec<[u8; N]> = random_bytes_array(BATCH);
         let mut out = vec![0u32; BATCH];
 
         bencher.bench_local(|| {
-            hamming_bitwise_array_batch(&source, &targets, &mut out);
+            hamming_bitwise_fast::hamming_bitwise_array_batch(&source, &targets, &mut out);
+            out[0]
+        });
+    }
+
+    #[divan::bench(consts = [64, 96, 128, 256])]
+    fn hamming_bitwise_array_loop<const N: usize>(bencher: divan::Bencher) {
+        let source: [u8; N] = random_bytes();
+        let targets: Vec<[u8; N]> = random_bytes_array(BATCH);
+        let mut out = vec![0u32; BATCH];
+
+        bencher.bench_local(|| {
+            for (i, target) in targets.iter().enumerate() {
+                out[i] = hamming_bitwise_array(&source, target);
+            }
             out[0]
         });
     }
 
     #[divan::bench(args = [64, 96, 128, 256])]
-    fn hamming_bitwise_fast_slice(bencher: divan::Bencher, bytes: usize) {
+    fn hamming_bitwise_slice_batch(bencher: divan::Bencher, bytes: usize) {
         let source = random_bytes_vec(bytes);
         let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(bytes)).collect();
         let targets_refs: Vec<&[u8]> = targets.iter().map(|v| v.as_slice()).collect();
         let mut out = vec![0u32; BATCH];
 
         bencher.bench_local(|| {
-            hamming_bitwise_slice_batch(&source, &targets_refs, &mut out);
+            hamming_bitwise_fast::hamming_bitwise_slice_batch(&source, &targets_refs, &mut out);
+            out[0]
+        });
+    }
+
+    #[divan::bench(args = [64, 96, 128, 256])]
+    fn hamming_bitwise_slice_loop(bencher: divan::Bencher, bytes: usize) {
+        let source = random_bytes_vec(bytes);
+        let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(bytes)).collect();
+        let mut out = vec![0u32; BATCH];
+
+        bencher.bench_local(|| {
+            for (i, target) in targets.iter().enumerate() {
+                out[i] = hamming_bitwise_slice(&source, target);
+            }
             out[0]
         });
     }

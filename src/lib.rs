@@ -203,6 +203,10 @@ define_hamming_fn! {
 define_hamming_fn! {
     /// Compute Hamming distance from one source to many targets (one-to-many).
     ///
+    /// On x86 with the `multiversion_x86` feature, this is faster than calling
+    /// [`hamming_bitwise_array`] in a loop because CPU dispatch happens once
+    /// per batch instead of once per comparison.
+    ///
     /// # Panics
     ///
     /// Panics if `out.len() != targets.len()`.
@@ -263,6 +267,10 @@ define_hamming_fn! {
     /// Compute Hamming distance from one source slice to many target slices (one-to-many).
     ///
     /// This is the slice-based equivalent of [`hamming_bitwise_array_batch`].
+    ///
+    /// On x86 with the `multiversion_x86` feature, this is faster than calling
+    /// [`hamming_bitwise_slice`] in a loop because CPU dispatch happens once
+    /// per batch instead of once per comparison.
     ///
     /// # Panics
     ///
