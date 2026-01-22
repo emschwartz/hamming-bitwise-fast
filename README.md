@@ -73,7 +73,7 @@ Rust targets the baseline [x86-64 microarchitecture level](https://en.wikipedia.
 | x86-64-v3 | 2013 | AVX2, BMI1/2 |
 | x86-64-v4 | 2017 | AVX-512 |
 
-**Note:** The `VPOPCNTDQ` instruction (vectorized popcount) that makes Hamming distance extremely fast is a *separate* AVX-512 extension, not part of the base x86-64-v4 level. It's available on Ice Lake (2019) and later CPUs. The `multiversion_x86` feature automatically detects and uses it when available.
+**Note:** The `VPOPCNTDQ` instruction (vectorized popcount) that makes Hamming distance extremely fast is a *separate* AVX-512 extension, not part of the base x86-64-v4 level. It's available on Intel Ice Lake (2019+) and AMD Zen 4 (2022+) CPUs. The `multiversion_x86` feature automatically detects and uses it when available.
 
 ### The Solution: `multiversion_x86`
 
@@ -106,13 +106,13 @@ RUSTFLAGS="-C target-cpu=x86-64-v4 -C target-feature=+avx512vpopcntdq" cargo bui
 
 > ⚠️ **Warning:** Binaries built with compile-time CPU targeting will crash with "illegal instruction" if run on a CPU that doesn't support the required features. For portable deployments, use the `multiversion_x86` feature instead.
 
-### Performance comparison (Ice Lake x86)
+### Performance comparison (AMD EPYC Zen 4)
 
-| Option | Speed (1024-bit) |
-|--------|------------------|
-| Default (no SIMD) | ~10ns |
-| `multiversion_x86` feature | ~3-4ns |
-| `multiversion_x86` + `_array_batch` | ~0.8ns per comparison |
+| Option | Speed (128 bytes / 1024-bit) |
+|--------|------------------------------|
+| Default (no multiversion) | ~8ns |
+| `multiversion_x86` feature | ~2.5ns |
+| `multiversion_x86` + `_batch` | ~2.2ns per comparison |
 
 **For Docker/cloud deployments**, `multiversion_x86` is strongly recommended—it automatically uses AVX-512 on modern cloud instances while remaining compatible with older hardware.
 
