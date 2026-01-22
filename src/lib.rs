@@ -203,8 +203,6 @@ define_hamming_fn! {
 define_hamming_fn! {
     /// Compute Hamming distance from one source to many targets (one-to-many).
     ///
-    /// Faster than calling [`hamming_bitwise_array`] in a loop.
-    ///
     /// # Panics
     ///
     /// Panics if `out.len() != targets.len()`.
