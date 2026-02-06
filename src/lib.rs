@@ -177,13 +177,8 @@ pub(crate) fn array_impl<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
 /// common embedding size) while performing within ~10% on loose thresholds.
 const THRESHOLD_BLOCK_SIZE: usize = 32;
 
-/// Block-based early-exit for arrays: process fixed-size blocks with vectorizable
-/// inner loops, checking the threshold only between blocks.
-///
-/// The key trick: each block is converted to `&[u8; THRESHOLD_BLOCK_SIZE]` via
-/// `try_into()`, giving the compiler a fixed-size array it can fully vectorize
-/// (NEON cnt.16b on ARM, VPOPCNTDQ on x86). The threshold check happens outside
-/// the vectorized inner loop, preserving auto-vectorization.
+/// x86 array threshold: u64 chunking within each block for VPOPCNTDQ/POPCNT.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
 pub(crate) fn array_threshold_impl<const N: usize>(
     a: &[u8; N],
@@ -198,7 +193,56 @@ pub(crate) fn array_threshold_impl<const N: usize>(
     let b_rem = b_blocks.remainder();
 
     for (a_block, b_block) in a_blocks.zip(b_blocks) {
-        // Convert to fixed-size array so the compiler can fully unroll + vectorize.
+        let a_arr: &[u8; THRESHOLD_BLOCK_SIZE] = a_block.try_into().unwrap();
+        let b_arr: &[u8; THRESHOLD_BLOCK_SIZE] = b_block.try_into().unwrap();
+
+        let block_dist: u32 = a_arr
+            .chunks_exact(8)
+            .zip(b_arr.chunks_exact(8))
+            .map(|(a_chunk, b_chunk)| {
+                let a_val = u64::from_ne_bytes(a_chunk.try_into().unwrap());
+                let b_val = u64::from_ne_bytes(b_chunk.try_into().unwrap());
+                (a_val ^ b_val).count_ones()
+            })
+            .sum();
+
+        distance += block_dist;
+        if distance > threshold {
+            return None;
+        }
+    }
+
+    // Remainder (< THRESHOLD_BLOCK_SIZE bytes) — not worth early-exiting from
+    let rem_dist: u32 = a_rem
+        .iter()
+        .zip(b_rem.iter())
+        .map(|(x, y)| (x ^ y).count_ones())
+        .sum();
+    distance += rem_dist;
+
+    if distance <= threshold {
+        Some(distance)
+    } else {
+        None
+    }
+}
+
+/// Non-x86 array threshold: byte iteration for NEON cnt.16b auto-vectorization.
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline(always)]
+pub(crate) fn array_threshold_impl<const N: usize>(
+    a: &[u8; N],
+    b: &[u8; N],
+    threshold: u32,
+) -> Option<u32> {
+    let mut distance: u32 = 0;
+
+    let a_blocks = a.chunks_exact(THRESHOLD_BLOCK_SIZE);
+    let b_blocks = b.chunks_exact(THRESHOLD_BLOCK_SIZE);
+    let a_rem = a_blocks.remainder();
+    let b_rem = b_blocks.remainder();
+
+    for (a_block, b_block) in a_blocks.zip(b_blocks) {
         let a_arr: &[u8; THRESHOLD_BLOCK_SIZE] = a_block.try_into().unwrap();
         let b_arr: &[u8; THRESHOLD_BLOCK_SIZE] = b_block.try_into().unwrap();
 
@@ -229,8 +273,54 @@ pub(crate) fn array_threshold_impl<const N: usize>(
     }
 }
 
-/// Block-based early-exit for slices: same algorithm as `array_threshold_impl`
-/// but accepts `&[u8]` instead of `&[u8; N]`.
+/// x86 slice threshold: u64 chunking within each block for VPOPCNTDQ/POPCNT.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[inline(always)]
+pub(crate) fn slice_threshold_impl(a: &[u8], b: &[u8], threshold: u32) -> Option<u32> {
+    assert_eq!(a.len(), b.len());
+    let mut distance: u32 = 0;
+
+    let a_blocks = a.chunks_exact(THRESHOLD_BLOCK_SIZE);
+    let b_blocks = b.chunks_exact(THRESHOLD_BLOCK_SIZE);
+    let a_rem = a_blocks.remainder();
+    let b_rem = b_blocks.remainder();
+
+    for (a_block, b_block) in a_blocks.zip(b_blocks) {
+        let a_arr: &[u8; THRESHOLD_BLOCK_SIZE] = a_block.try_into().unwrap();
+        let b_arr: &[u8; THRESHOLD_BLOCK_SIZE] = b_block.try_into().unwrap();
+
+        let block_dist: u32 = a_arr
+            .chunks_exact(8)
+            .zip(b_arr.chunks_exact(8))
+            .map(|(a_chunk, b_chunk)| {
+                let a_val = u64::from_ne_bytes(a_chunk.try_into().unwrap());
+                let b_val = u64::from_ne_bytes(b_chunk.try_into().unwrap());
+                (a_val ^ b_val).count_ones()
+            })
+            .sum();
+
+        distance += block_dist;
+        if distance > threshold {
+            return None;
+        }
+    }
+
+    let rem_dist: u32 = a_rem
+        .iter()
+        .zip(b_rem.iter())
+        .map(|(x, y)| (x ^ y).count_ones())
+        .sum();
+    distance += rem_dist;
+
+    if distance <= threshold {
+        Some(distance)
+    } else {
+        None
+    }
+}
+
+/// Non-x86 slice threshold: byte iteration for NEON cnt.16b auto-vectorization.
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
 #[inline(always)]
 pub(crate) fn slice_threshold_impl(a: &[u8], b: &[u8], threshold: u32) -> Option<u32> {
     assert_eq!(a.len(), b.len());
