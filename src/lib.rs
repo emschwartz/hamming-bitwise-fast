@@ -109,8 +109,15 @@ pub mod slice;
 /// common embedding size) while performing within ~10% on loose thresholds.
 const THRESHOLD_BLOCK_SIZE: usize = 32;
 
-/// x86 implementation: u64 chunking for VPOPCNTDQ/POPCNT auto-vectorization.
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+/// Core implementation for all public functions on all platforms.
+///
+/// Pass `threshold = u32::MAX` for unconditional full-distance computation.
+/// Since distance is a `u32`, the check `distance > u32::MAX` is statically
+/// impossible, so the compiler optimizes away the early-exit branch entirely.
+///
+/// The inner popcount strategy is platform-specific:
+/// - x86: u64 chunking enables VPOPCNTDQ (AVX-512) and POPCNT auto-vectorization
+/// - ARM: byte iteration lets LLVM use CNT on full 128-bit NEON registers
 #[inline(always)]
 pub(crate) fn distance_impl(a: &[u8], b: &[u8], threshold: u32) -> Option<u32> {
     assert_eq!(a.len(), b.len());
@@ -125,6 +132,8 @@ pub(crate) fn distance_impl(a: &[u8], b: &[u8], threshold: u32) -> Option<u32> {
         let a_arr: &[u8; THRESHOLD_BLOCK_SIZE] = a_block.try_into().unwrap();
         let b_arr: &[u8; THRESHOLD_BLOCK_SIZE] = b_block.try_into().unwrap();
 
+        // x86: u64 chunking for VPOPCNTDQ/POPCNT
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         let block_dist: u32 = a_arr
             .chunks_exact(8)
             .zip(b_arr.chunks_exact(8))
@@ -135,59 +144,8 @@ pub(crate) fn distance_impl(a: &[u8], b: &[u8], threshold: u32) -> Option<u32> {
             })
             .sum();
 
-        distance += block_dist;
-        if distance > threshold {
-            return None;
-        }
-    }
-
-    // Remainder (< THRESHOLD_BLOCK_SIZE bytes) — use u64 chunking here too
-    // so that small inputs (< 32 bytes) still get the u64 optimization.
-    let a_rem_chunks = a_rem.chunks_exact(8);
-    let b_rem_chunks = b_rem.chunks_exact(8);
-
-    let rem_main: u32 = a_rem_chunks
-        .clone()
-        .zip(b_rem_chunks.clone())
-        .map(|(a_chunk, b_chunk)| {
-            let a_val = u64::from_ne_bytes(a_chunk.try_into().unwrap());
-            let b_val = u64::from_ne_bytes(b_chunk.try_into().unwrap());
-            (a_val ^ b_val).count_ones()
-        })
-        .sum();
-
-    let rem_rest: u32 = a_rem_chunks
-        .remainder()
-        .iter()
-        .zip(b_rem_chunks.remainder())
-        .map(|(x, y)| (x ^ y).count_ones())
-        .sum();
-
-    distance += rem_main + rem_rest;
-
-    if distance <= threshold {
-        Some(distance)
-    } else {
-        None
-    }
-}
-
-/// Non-x86 implementation: byte iteration for NEON cnt.16b auto-vectorization.
-#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-#[inline(always)]
-pub(crate) fn distance_impl(a: &[u8], b: &[u8], threshold: u32) -> Option<u32> {
-    assert_eq!(a.len(), b.len());
-    let mut distance: u32 = 0;
-
-    let a_blocks = a.chunks_exact(THRESHOLD_BLOCK_SIZE);
-    let b_blocks = b.chunks_exact(THRESHOLD_BLOCK_SIZE);
-    let a_rem = a_blocks.remainder();
-    let b_rem = b_blocks.remainder();
-
-    for (a_block, b_block) in a_blocks.zip(b_blocks) {
-        let a_arr: &[u8; THRESHOLD_BLOCK_SIZE] = a_block.try_into().unwrap();
-        let b_arr: &[u8; THRESHOLD_BLOCK_SIZE] = b_block.try_into().unwrap();
-
+        // ARM/other: byte iteration for NEON CNT auto-vectorization
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
         let block_dist: u32 = a_arr
             .iter()
             .zip(b_arr.iter())
@@ -200,13 +158,43 @@ pub(crate) fn distance_impl(a: &[u8], b: &[u8], threshold: u32) -> Option<u32> {
         }
     }
 
-    // Remainder (< THRESHOLD_BLOCK_SIZE bytes) — not worth early-exiting from
-    let rem_dist: u32 = a_rem
-        .iter()
-        .zip(b_rem.iter())
-        .map(|(x, y)| (x ^ y).count_ones())
-        .sum();
-    distance += rem_dist;
+    // Remainder (< THRESHOLD_BLOCK_SIZE bytes).
+    // x86: u64 chunking so small inputs (< 32 bytes) still get the optimization.
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        let a_rem_chunks = a_rem.chunks_exact(8);
+        let b_rem_chunks = b_rem.chunks_exact(8);
+
+        let rem_main: u32 = a_rem_chunks
+            .clone()
+            .zip(b_rem_chunks.clone())
+            .map(|(a_chunk, b_chunk)| {
+                let a_val = u64::from_ne_bytes(a_chunk.try_into().unwrap());
+                let b_val = u64::from_ne_bytes(b_chunk.try_into().unwrap());
+                (a_val ^ b_val).count_ones()
+            })
+            .sum();
+
+        let rem_rest: u32 = a_rem_chunks
+            .remainder()
+            .iter()
+            .zip(b_rem_chunks.remainder())
+            .map(|(x, y)| (x ^ y).count_ones())
+            .sum();
+
+        distance += rem_main + rem_rest;
+    }
+
+    // ARM/other: simple byte iteration
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+    {
+        let rem_dist: u32 = a_rem
+            .iter()
+            .zip(b_rem.iter())
+            .map(|(x, y)| (x ^ y).count_ones())
+            .sum();
+        distance += rem_dist;
+    }
 
     if distance <= threshold {
         Some(distance)
