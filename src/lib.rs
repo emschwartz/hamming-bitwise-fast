@@ -32,8 +32,7 @@
 //! ## Single vs batch
 //!
 //! Use [`array::batch`] or [`slice::batch`] when comparing one source against
-//! many targets. Batch amortizes dispatch overhead and is the fastest approach
-//! for one-to-many comparisons.
+//! many targets. Batch is the fastest approach for one-to-many comparisons.
 //!
 //! ## Early exit for top-k search (`threshold` / `batch_threshold`)
 //!
@@ -46,8 +45,8 @@
 //! - You maintain a threshold (e.g., worst score in a top-k heap)
 //! - Most candidates will be rejected (far from the query)
 //!
-//! The check runs every 512 bits (64 bytes). For 1024-bit vectors, a reject
-//! can happen after processing only the first half. With embeddings trained
+//! The check runs every 256 bits (32 bytes). For 1024-bit vectors, a reject
+//! can happen after processing only the first quarter. With embeddings trained
 //! using Matryoshka Representation Learning (MRL), semantic information is
 //! concentrated in early bits, making early exit particularly effective.
 //!
@@ -172,7 +171,11 @@ pub(crate) fn array_impl<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
 /// Block size for early-exit threshold checks (in bytes).
 /// Each block is converted to a fixed-size array for auto-vectorization,
 /// then the running distance is checked against the threshold between blocks.
-const THRESHOLD_BLOCK_SIZE: usize = 64;
+///
+/// 32 bytes was chosen via benchmarking (see `benches/threshold_block_size.rs`):
+/// it's ~30% faster than 64B on tight thresholds for 1024-bit vectors (the most
+/// common embedding size) while performing within ~10% on loose thresholds.
+const THRESHOLD_BLOCK_SIZE: usize = 32;
 
 /// Block-based early-exit for arrays: process fixed-size blocks with vectorizable
 /// inner loops, checking the threshold only between blocks.

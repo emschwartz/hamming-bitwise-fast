@@ -16,44 +16,46 @@ _\* Zero dependencies by default. The optional `multiversion_x86` feature adds t
 
 For variable-length slices:
 ```rust
-use hamming_bitwise_fast::{hamming_bitwise_slice, hamming_bitwise_slice_batch};
+use hamming_bitwise_fast::slice;
 
 // Single comparison
 let a: Vec<u8> = vec![0xFF; 128];
 let b: Vec<u8> = vec![0x00; 128];
-let distance: u32 = hamming_bitwise_slice(&a, &b); // 1024
+let distance: u32 = slice::distance(&a, &b); // 1024
 
 // Batch comparison (one source vs many targets)
 // Pre-allocate result vec once and reuse across calls for best performance
 let source: Vec<u8> = vec![0x00; 128];
 let targets: Vec<&[u8]> = vec![&a, &b];
 let mut distances: Vec<u32> = vec![0; 2];
-hamming_bitwise_slice_batch(&source, &targets, &mut distances); // [1024, 0]
+slice::batch(&source, &targets, &mut distances); // [1024, 0]
 ```
 
 For fixed-size arrays (faster for sizes under 2048 bits / 256 bytes):
 ```rust
-use hamming_bitwise_fast::{hamming_bitwise_array, hamming_bitwise_array_batch};
+use hamming_bitwise_fast::array;
 
 // Single comparison
 let a: [u8; 128] = [0xFF; 128];  // 1024-bit vectors
 let b: [u8; 128] = [0x00; 128];
-let distance: u32 = hamming_bitwise_array(&a, &b); // 1024
+let distance: u32 = array::distance(&a, &b); // 1024
 
 // Batch comparison (one source vs many targets)
 // Pre-allocate result vec once and reuse across calls for best performance
 let source: [u8; 128] = [0x00; 128];
 let targets: Vec<[u8; 128]> = vec![a, b];
 let mut distances: Vec<u32> = vec![0; 2];
-hamming_bitwise_array_batch(&source, &targets, &mut distances); // [1024, 0]
+array::batch(&source, &targets, &mut distances); // [1024, 0]
 ```
 
 ## API
 
-The crate exports 4 functions:
+The crate provides two modules:
 
-- `hamming_bitwise_slice` / `hamming_bitwise_array` - single comparisons for slices and fixed-size arrays
-- `hamming_bitwise_slice_batch` / `hamming_bitwise_array_batch` - batch comparisons (one source vs many targets)
+- `array::distance` / `slice::distance` - single comparisons for fixed-size arrays and slices
+- `array::batch` / `slice::batch` - batch comparisons (one source vs many targets)
+- `array::threshold` / `slice::threshold` - single comparison with early exit
+- `array::batch_threshold` / `slice::batch_threshold` - batch with early exit
 
 ## SIMD on x86
 
@@ -112,7 +114,7 @@ RUSTFLAGS="-C target-cpu=x86-64-v4 -C target-feature=+avx512vpopcntdq" cargo bui
 |--------|------------------------------|
 | Default (no multiversion) | ~8ns |
 | `multiversion_x86` feature | ~2.5ns |
-| `multiversion_x86` + `_batch` | ~2.2ns per comparison |
+| `multiversion_x86` + `batch` | ~2.2ns per comparison |
 
 **For Docker/cloud deployments**, `multiversion_x86` is strongly recommended—it automatically uses AVX-512 on modern cloud instances while remaining compatible with older hardware.
 
@@ -130,8 +132,8 @@ Comparing against other Hamming distance crates:
 
 | Function | 64 bytes | 128 bytes | 256 bytes |
 |----------|----------|-----------|-----------|
-| **hamming_bitwise_array** | **1.2ns** | **2.2ns** | **4.3ns** |
-| **hamming_bitwise_slice** | **1.8ns** | **2.7ns** | **5.0ns** |
+| **array::distance** | **1.2ns** | **2.2ns** | **4.3ns** |
+| **slice::distance** | **1.8ns** | **2.7ns** | **5.0ns** |
 | simsimd | 4.7ns | 6.5ns | 10.4ns |
 | triple_accel | 7.4ns | 11.9ns | 21.2ns |
 | hamming | 7.5ns | 11.9ns | 18.6ns |
@@ -140,8 +142,8 @@ Comparing against other Hamming distance crates:
 
 | Function | 64 bytes | 128 bytes | 256 bytes |
 |----------|----------|-----------|-----------|
-| **hamming_bitwise_array** | **2.4ns** | **2.7ns** | **4.4ns** |
-| **hamming_bitwise_slice** | **2.4ns** | **3.1ns** | **4.0ns** |
+| **array::distance** | **2.4ns** | **2.7ns** | **4.4ns** |
+| **slice::distance** | **2.4ns** | **3.1ns** | **4.0ns** |
 | triple_accel | 3.5ns | 4.0ns | 5.5ns |
 | simsimd | 3.8ns | 4.5ns | 5.9ns |
 | hamming_rs | 15ns | 24ns | 41ns |
@@ -149,16 +151,16 @@ Comparing against other Hamming distance crates:
 
 ### Batch Comparison (1000 comparisons)
 
-The `_batch` functions are faster than calling single functions in a loop on x86 with `multiversion_x86` because CPU dispatch happens once per batch instead of once per comparison.
+The batch functions are faster than calling single functions in a loop for one-to-many comparisons.
 
 #### ARM (Apple M2 Max)
 
 | Function | 64 bytes | 128 bytes | 256 bytes |
 |----------|----------|-----------|-----------|
-| **hamming_bitwise_array_batch** | **1.3µs** | **2.2µs** | **4.5µs** |
-| hamming_bitwise_array (loop) | 1.4µs | 2.5µs | 4.7µs |
-| **hamming_bitwise_slice_batch** | **1.8µs** | **2.7µs** | **4.8µs** |
-| hamming_bitwise_slice (loop) | 2.2µs | 3.1µs | 5.6µs |
+| **array::batch** | **1.3µs** | **2.2µs** | **4.5µs** |
+| array::distance (loop) | 1.4µs | 2.5µs | 4.7µs |
+| **slice::batch** | **1.8µs** | **2.7µs** | **4.8µs** |
+| slice::distance (loop) | 2.2µs | 3.1µs | 5.6µs |
 | simsimd | 4.8µs | 6.6µs | 10.5µs |
 | triple_accel | 7.7µs | 12.0µs | 21.1µs |
 
@@ -166,10 +168,10 @@ The `_batch` functions are faster than calling single functions in a loop on x86
 
 | Function | 64 bytes | 128 bytes | 256 bytes |
 |----------|----------|-----------|-----------|
-| **hamming_bitwise_slice_batch** | **1.4µs** | **2.2µs** | **3.7µs** |
-| hamming_bitwise_slice (loop) | 2.7µs | 3.5µs | 5.2µs |
-| **hamming_bitwise_array_batch** | **2.4µs** | **4.7µs** | **9.4µs** |
-| hamming_bitwise_array (loop) | 3.5µs | 4.6µs | 11.7µs |
+| **slice::batch** | **1.4µs** | **2.2µs** | **3.7µs** |
+| slice::distance (loop) | 2.7µs | 3.5µs | 5.2µs |
+| **array::batch** | **2.4µs** | **4.7µs** | **9.4µs** |
+| array::distance (loop) | 3.5µs | 4.6µs | 11.7µs |
 | simsimd | 4.2µs | 4.8µs | 5.7µs |
 | triple_accel | 4.2µs | 4.5µs | 5.5µs |
 | hamming_rs | 15µs | 23µs | 41µs |
@@ -182,10 +184,10 @@ The `_batch` functions are faster than calling single functions in a loop on x86
 cargo bench
 
 # Run competitor comparison
-cargo bench --bench vs_competitors
+cargo bench --bench competitors
 
 # With multiversion (x86 only)
-cargo bench --features multiversion_x86 --bench vs_competitors
+cargo bench --features multiversion_x86 --bench competitors
 ```
 
 ## License

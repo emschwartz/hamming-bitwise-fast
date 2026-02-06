@@ -30,8 +30,7 @@ define_hamming_fn! {
 define_hamming_fn! {
     /// Compute Hamming distance from one source to many targets (one-to-many).
     ///
-    /// Faster than calling [`distance`] in a loop on x86 with `multiversion_x86`,
-    /// because CPU dispatch happens once per batch instead of once per comparison.
+    /// Faster than calling [`distance`] in a loop for one-to-many comparisons.
     ///
     /// # Panics
     ///
@@ -56,10 +55,8 @@ define_hamming_fn! {
         assert_eq!(targets.len(), out.len());
 
         // Call distance() (the public multiversion function) rather than array_impl
-        // directly. The multiversion dispatch creates a boundary that prevents the
-        // compiler from seeing the contiguous `&[[u8; N]]` layout, avoiding slow
-        // VPGATHERQQ gather instructions on AVX-512. This approach is ~16% faster
-        // than using black_box to hide the memory layout.
+        // directly. This prevents the compiler from seeing the contiguous &[[u8; N]]
+        // layout and emitting slow VPGATHERQQ gather instructions on AVX-512.
         for (target, dist) in targets.iter().zip(out.iter_mut()) {
             *dist = distance(source, target);
         }
@@ -70,8 +67,8 @@ define_hamming_fn! {
     /// Compute Hamming distance with early exit when distance exceeds a threshold.
     ///
     /// Returns `Some(distance)` if the distance is `<= max`, or `None` if it
-    /// exceeds the threshold. Internally checks the running distance every 512
-    /// bits (64 bytes).
+    /// exceeds the threshold. Internally checks the running distance every 256
+    /// bits (32 bytes).
     ///
     /// **When to use:** Nearest-neighbor search where most candidates are far
     /// from the query vector (e.g., threshold is ~10% of max possible distance).

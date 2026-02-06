@@ -14,7 +14,7 @@ mod helpers;
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use helpers::{random_bytes, random_bytes_array, random_bytes_vec};
+use helpers::{random_bytes, random_bytes_array};
 
 const BATCH: usize = 1000;
 const SIZES: &[usize] = &[64, 96, 128, 256];
@@ -54,6 +54,81 @@ fn hamming_v1(x: &[u8], y: &[u8]) -> u32 {
 }
 
 // ============================================================================
+// Helper: bench all single-comparison competitors for a given size
+// ============================================================================
+
+/// Bench all slice-based single competitors with shared data.
+fn bench_single_slice(
+    group: &mut criterion::BenchmarkGroup<criterion::measurement::WallTime>,
+    size: usize,
+    a_vec: &[u8],
+    b_vec: &[u8],
+) {
+    let label = format!("{}b", size * 8);
+
+    group.bench_with_input(
+        BenchmarkId::new("slice::distance", &label),
+        &size,
+        |bencher, _| {
+            bencher.iter(|| {
+                black_box(hamming_bitwise_fast::slice::distance(
+                    black_box(a_vec),
+                    black_box(b_vec),
+                ))
+            })
+        },
+    );
+
+    group.bench_with_input(
+        BenchmarkId::new("hamming_bitwise_fast_v1", &label),
+        &size,
+        |bencher, _| bencher.iter(|| black_box(hamming_v1(black_box(a_vec), black_box(b_vec)))),
+    );
+
+    // simsimd — returns a normalized f64 (distance / total_bits), so it
+    // performs additional floating-point division vs raw integer implementations.
+    group.bench_with_input(
+        BenchmarkId::new("simsimd", &label),
+        &size,
+        |bencher, _| {
+            bencher.iter(|| {
+                black_box(simsimd::BinarySimilarity::hamming(
+                    black_box(a_vec),
+                    black_box(b_vec),
+                ))
+            })
+        },
+    );
+
+    group.bench_with_input(
+        BenchmarkId::new("hamming_crate", &label),
+        &size,
+        |bencher, _| {
+            bencher
+                .iter(|| black_box(hamming::distance_fast(black_box(a_vec), black_box(b_vec))))
+        },
+    );
+
+    group.bench_with_input(
+        BenchmarkId::new("triple_accel", &label),
+        &size,
+        |bencher, _| {
+            bencher.iter(|| black_box(triple_accel::hamming(black_box(a_vec), black_box(b_vec))))
+        },
+    );
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    group.bench_with_input(
+        BenchmarkId::new("hamming_rs", &label),
+        &size,
+        |bencher, _| {
+            bencher
+                .iter(|| black_box(hamming_rs::distance_faster(black_box(a_vec), black_box(b_vec))))
+        },
+    );
+}
+
+// ============================================================================
 // Single comparison benchmarks
 // ============================================================================
 
@@ -61,15 +136,18 @@ fn single_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("single");
 
     for &size in SIZES {
-        group.throughput(Throughput::Bits((size * 8 * 2) as u64));
+        group.throughput(Throughput::Bits((size * 8) as u64));
 
-        // array::distance - requires const generics, so we dispatch manually
         match size {
             64 => {
                 let a: [u8; 64] = random_bytes();
                 let b: [u8; 64] = random_bytes();
+                let a_vec = a.to_vec();
+                let b_vec = b.to_vec();
+                let label = format!("{}b", size * 8);
+
                 group.bench_with_input(
-                    BenchmarkId::new("array::distance", format!("{}b", size * 8)),
+                    BenchmarkId::new("array::distance", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -80,12 +158,18 @@ fn single_benchmarks(c: &mut Criterion) {
                         })
                     },
                 );
+
+                bench_single_slice(&mut group, size, &a_vec, &b_vec);
             }
             96 => {
                 let a: [u8; 96] = random_bytes();
                 let b: [u8; 96] = random_bytes();
+                let a_vec = a.to_vec();
+                let b_vec = b.to_vec();
+                let label = format!("{}b", size * 8);
+
                 group.bench_with_input(
-                    BenchmarkId::new("array::distance", format!("{}b", size * 8)),
+                    BenchmarkId::new("array::distance", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -96,12 +180,18 @@ fn single_benchmarks(c: &mut Criterion) {
                         })
                     },
                 );
+
+                bench_single_slice(&mut group, size, &a_vec, &b_vec);
             }
             128 => {
                 let a: [u8; 128] = random_bytes();
                 let b: [u8; 128] = random_bytes();
+                let a_vec = a.to_vec();
+                let b_vec = b.to_vec();
+                let label = format!("{}b", size * 8);
+
                 group.bench_with_input(
-                    BenchmarkId::new("array::distance", format!("{}b", size * 8)),
+                    BenchmarkId::new("array::distance", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -112,12 +202,18 @@ fn single_benchmarks(c: &mut Criterion) {
                         })
                     },
                 );
+
+                bench_single_slice(&mut group, size, &a_vec, &b_vec);
             }
             256 => {
                 let a: [u8; 256] = random_bytes();
                 let b: [u8; 256] = random_bytes();
+                let a_vec = a.to_vec();
+                let b_vec = b.to_vec();
+                let label = format!("{}b", size * 8);
+
                 group.bench_with_input(
-                    BenchmarkId::new("array::distance", format!("{}b", size * 8)),
+                    BenchmarkId::new("array::distance", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -128,100 +224,139 @@ fn single_benchmarks(c: &mut Criterion) {
                         })
                     },
                 );
+
+                bench_single_slice(&mut group, size, &a_vec, &b_vec);
             }
             _ => {}
-        }
-
-        // slice::distance
-        {
-            let a = random_bytes_vec(size);
-            let b = random_bytes_vec(size);
-            group.bench_with_input(
-                BenchmarkId::new("slice::distance", format!("{}b", size * 8)),
-                &size,
-                |bencher, _| {
-                    bencher.iter(|| {
-                        black_box(hamming_bitwise_fast::slice::distance(
-                            black_box(&a),
-                            black_box(&b),
-                        ))
-                    })
-                },
-            );
-        }
-
-        // hamming_bitwise_fast v1 (baseline - no arch targeting)
-        {
-            let a = random_bytes_vec(size);
-            let b = random_bytes_vec(size);
-            group.bench_with_input(
-                BenchmarkId::new("hamming_bitwise_fast_v1", format!("{}b", size * 8)),
-                &size,
-                |bencher, _| {
-                    bencher.iter(|| black_box(hamming_v1(black_box(&a), black_box(&b))))
-                },
-            );
-        }
-
-        // simsimd
-        {
-            let a = random_bytes_vec(size);
-            let b = random_bytes_vec(size);
-            group.bench_with_input(BenchmarkId::new("simsimd", format!("{}b", size * 8)), &size, |bencher, _| {
-                bencher.iter(|| {
-                    black_box(simsimd::BinarySimilarity::hamming(
-                        black_box(&a),
-                        black_box(&b),
-                    ))
-                })
-            });
-        }
-
-        // hamming crate
-        {
-            let a = random_bytes_vec(size);
-            let b = random_bytes_vec(size);
-            group.bench_with_input(
-                BenchmarkId::new("hamming_crate", format!("{}b", size * 8)),
-                &size,
-                |bencher, _| {
-                    bencher.iter(|| {
-                        black_box(hamming::distance_fast(black_box(&a), black_box(&b)))
-                    })
-                },
-            );
-        }
-
-        // triple_accel
-        {
-            let a = random_bytes_vec(size);
-            let b = random_bytes_vec(size);
-            group.bench_with_input(
-                BenchmarkId::new("triple_accel", format!("{}b", size * 8)),
-                &size,
-                |bencher, _| {
-                    bencher.iter(|| black_box(triple_accel::hamming(black_box(&a), black_box(&b))))
-                },
-            );
-        }
-
-        // hamming_rs (x86 only)
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        {
-            let a = random_bytes_vec(size);
-            let b = random_bytes_vec(size);
-            group.bench_with_input(
-                BenchmarkId::new("hamming_rs", format!("{}b", size * 8)),
-                &size,
-                |bencher, _| {
-                    bencher
-                        .iter(|| black_box(hamming_rs::distance_faster(black_box(&a), black_box(&b))))
-                },
-            );
         }
     }
 
     group.finish();
+}
+
+// ============================================================================
+// Helper: bench all batch competitors for a given size (slice-based)
+// ============================================================================
+
+fn bench_batch_slice(
+    group: &mut criterion::BenchmarkGroup<criterion::measurement::WallTime>,
+    size: usize,
+    source_vec: &[u8],
+    targets_vecs: &[Vec<u8>],
+) {
+    let label = format!("{}b", size * 8);
+    let targets_refs: Vec<&[u8]> = targets_vecs.iter().map(|v| v.as_slice()).collect();
+    let mut out_u32 = vec![0u32; BATCH];
+
+    group.bench_with_input(
+        BenchmarkId::new("slice::batch", &label),
+        &size,
+        |bencher, _| {
+            bencher.iter(|| {
+                hamming_bitwise_fast::slice::batch(
+                    black_box(source_vec),
+                    black_box(&targets_refs),
+                    black_box(&mut out_u32),
+                );
+                black_box(out_u32[0])
+            })
+        },
+    );
+
+    group.bench_with_input(
+        BenchmarkId::new("slice::distance (loop)", &label),
+        &size,
+        |bencher, _| {
+            bencher.iter(|| {
+                for (i, target) in black_box(targets_vecs).iter().enumerate() {
+                    out_u32[i] =
+                        hamming_bitwise_fast::slice::distance(black_box(source_vec), target);
+                }
+                black_box(out_u32[0])
+            })
+        },
+    );
+
+    group.bench_with_input(
+        BenchmarkId::new("hamming_bitwise_fast_v1", &label),
+        &size,
+        |bencher, _| {
+            bencher.iter(|| {
+                for (i, target) in black_box(targets_vecs).iter().enumerate() {
+                    out_u32[i] = hamming_v1(black_box(source_vec), target);
+                }
+                black_box(out_u32[0])
+            })
+        },
+    );
+
+    // simsimd batch — returns a normalized f64 (distance / total_bits), so it
+    // performs additional floating-point division vs raw integer implementations.
+    {
+        let mut out_f64 = vec![0f64; BATCH];
+        group.bench_with_input(
+            BenchmarkId::new("simsimd", &label),
+            &size,
+            |bencher, _| {
+                bencher.iter(|| {
+                    for (i, target) in black_box(targets_vecs).iter().enumerate() {
+                        out_f64[i] =
+                            simsimd::BinarySimilarity::hamming(black_box(source_vec), target)
+                                .unwrap_or(0.0);
+                    }
+                    black_box(out_f64[0] as u64)
+                })
+            },
+        );
+    }
+
+    {
+        let mut out_u64 = vec![0u64; BATCH];
+        group.bench_with_input(
+            BenchmarkId::new("hamming_crate", &label),
+            &size,
+            |bencher, _| {
+                bencher.iter(|| {
+                    for (i, target) in black_box(targets_vecs).iter().enumerate() {
+                        out_u64[i] =
+                            hamming::distance_fast(black_box(source_vec), target).unwrap_or(0);
+                    }
+                    black_box(out_u64[0])
+                })
+            },
+        );
+    }
+
+    group.bench_with_input(
+        BenchmarkId::new("triple_accel", &label),
+        &size,
+        |bencher, _| {
+            bencher.iter(|| {
+                for (i, target) in black_box(targets_vecs).iter().enumerate() {
+                    out_u32[i] = triple_accel::hamming(black_box(source_vec), target);
+                }
+                black_box(out_u32[0])
+            })
+        },
+    );
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        let mut out_u64 = vec![0u64; BATCH];
+        group.bench_with_input(
+            BenchmarkId::new("hamming_rs", &label),
+            &size,
+            |bencher, _| {
+                bencher.iter(|| {
+                    for (i, target) in black_box(targets_vecs).iter().enumerate() {
+                        out_u64[i] =
+                            hamming_rs::distance_faster(black_box(source_vec), target);
+                    }
+                    black_box(out_u64[0])
+                })
+            },
+        );
+    }
 }
 
 // ============================================================================
@@ -232,16 +367,20 @@ fn batch_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("batch");
 
     for &size in SIZES {
-        group.throughput(Throughput::Bits((size * 8 * 2 * BATCH) as u64));
+        group.throughput(Throughput::Bits((size * 8 * BATCH) as u64));
 
-        // array::batch - requires const generics
         match size {
             64 => {
                 let source: [u8; 64] = random_bytes();
                 let targets: Vec<[u8; 64]> = random_bytes_array(BATCH);
+                let source_vec = source.to_vec();
+                let targets_vecs: Vec<Vec<u8>> =
+                    targets.iter().map(|t| t.to_vec()).collect();
                 let mut out = vec![0u32; BATCH];
+                let label = format!("{}b", size * 8);
+
                 group.bench_with_input(
-                    BenchmarkId::new("array::batch", format!("{}b", size * 8)),
+                    BenchmarkId::new("array::batch", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -254,13 +393,36 @@ fn batch_benchmarks(c: &mut Criterion) {
                         })
                     },
                 );
+
+                group.bench_with_input(
+                    BenchmarkId::new("array::distance (loop)", &label),
+                    &size,
+                    |bencher, _| {
+                        bencher.iter(|| {
+                            for (i, target) in black_box(&targets).iter().enumerate() {
+                                out[i] = hamming_bitwise_fast::array::distance(
+                                    black_box(&source),
+                                    target,
+                                );
+                            }
+                            black_box(out[0])
+                        })
+                    },
+                );
+
+                bench_batch_slice(&mut group, size, &source_vec, &targets_vecs);
             }
             96 => {
                 let source: [u8; 96] = random_bytes();
                 let targets: Vec<[u8; 96]> = random_bytes_array(BATCH);
+                let source_vec = source.to_vec();
+                let targets_vecs: Vec<Vec<u8>> =
+                    targets.iter().map(|t| t.to_vec()).collect();
                 let mut out = vec![0u32; BATCH];
+                let label = format!("{}b", size * 8);
+
                 group.bench_with_input(
-                    BenchmarkId::new("array::batch", format!("{}b", size * 8)),
+                    BenchmarkId::new("array::batch", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -273,13 +435,36 @@ fn batch_benchmarks(c: &mut Criterion) {
                         })
                     },
                 );
+
+                group.bench_with_input(
+                    BenchmarkId::new("array::distance (loop)", &label),
+                    &size,
+                    |bencher, _| {
+                        bencher.iter(|| {
+                            for (i, target) in black_box(&targets).iter().enumerate() {
+                                out[i] = hamming_bitwise_fast::array::distance(
+                                    black_box(&source),
+                                    target,
+                                );
+                            }
+                            black_box(out[0])
+                        })
+                    },
+                );
+
+                bench_batch_slice(&mut group, size, &source_vec, &targets_vecs);
             }
             128 => {
                 let source: [u8; 128] = random_bytes();
                 let targets: Vec<[u8; 128]> = random_bytes_array(BATCH);
+                let source_vec = source.to_vec();
+                let targets_vecs: Vec<Vec<u8>> =
+                    targets.iter().map(|t| t.to_vec()).collect();
                 let mut out = vec![0u32; BATCH];
+                let label = format!("{}b", size * 8);
+
                 group.bench_with_input(
-                    BenchmarkId::new("array::batch", format!("{}b", size * 8)),
+                    BenchmarkId::new("array::batch", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -292,13 +477,36 @@ fn batch_benchmarks(c: &mut Criterion) {
                         })
                     },
                 );
+
+                group.bench_with_input(
+                    BenchmarkId::new("array::distance (loop)", &label),
+                    &size,
+                    |bencher, _| {
+                        bencher.iter(|| {
+                            for (i, target) in black_box(&targets).iter().enumerate() {
+                                out[i] = hamming_bitwise_fast::array::distance(
+                                    black_box(&source),
+                                    target,
+                                );
+                            }
+                            black_box(out[0])
+                        })
+                    },
+                );
+
+                bench_batch_slice(&mut group, size, &source_vec, &targets_vecs);
             }
             256 => {
                 let source: [u8; 256] = random_bytes();
                 let targets: Vec<[u8; 256]> = random_bytes_array(BATCH);
+                let source_vec = source.to_vec();
+                let targets_vecs: Vec<Vec<u8>> =
+                    targets.iter().map(|t| t.to_vec()).collect();
                 let mut out = vec![0u32; BATCH];
+                let label = format!("{}b", size * 8);
+
                 group.bench_with_input(
-                    BenchmarkId::new("array::batch", format!("{}b", size * 8)),
+                    BenchmarkId::new("array::batch", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -311,238 +519,26 @@ fn batch_benchmarks(c: &mut Criterion) {
                         })
                     },
                 );
+
+                group.bench_with_input(
+                    BenchmarkId::new("array::distance (loop)", &label),
+                    &size,
+                    |bencher, _| {
+                        bencher.iter(|| {
+                            for (i, target) in black_box(&targets).iter().enumerate() {
+                                out[i] = hamming_bitwise_fast::array::distance(
+                                    black_box(&source),
+                                    target,
+                                );
+                            }
+                            black_box(out[0])
+                        })
+                    },
+                );
+
+                bench_batch_slice(&mut group, size, &source_vec, &targets_vecs);
             }
             _ => {}
-        }
-
-        // array::distance (loop) - requires const generics
-        match size {
-            64 => {
-                let source: [u8; 64] = random_bytes();
-                let targets: Vec<[u8; 64]> = random_bytes_array(BATCH);
-                let mut out = vec![0u32; BATCH];
-                group.bench_with_input(
-                    BenchmarkId::new("array::distance (loop)", format!("{}b", size * 8)),
-                    &size,
-                    |bencher, _| {
-                        bencher.iter(|| {
-                            for (i, target) in black_box(&targets).iter().enumerate() {
-                                out[i] = hamming_bitwise_fast::array::distance(
-                                    black_box(&source),
-                                    target,
-                                );
-                            }
-                            black_box(out[0])
-                        })
-                    },
-                );
-            }
-            96 => {
-                let source: [u8; 96] = random_bytes();
-                let targets: Vec<[u8; 96]> = random_bytes_array(BATCH);
-                let mut out = vec![0u32; BATCH];
-                group.bench_with_input(
-                    BenchmarkId::new("array::distance (loop)", format!("{}b", size * 8)),
-                    &size,
-                    |bencher, _| {
-                        bencher.iter(|| {
-                            for (i, target) in black_box(&targets).iter().enumerate() {
-                                out[i] = hamming_bitwise_fast::array::distance(
-                                    black_box(&source),
-                                    target,
-                                );
-                            }
-                            black_box(out[0])
-                        })
-                    },
-                );
-            }
-            128 => {
-                let source: [u8; 128] = random_bytes();
-                let targets: Vec<[u8; 128]> = random_bytes_array(BATCH);
-                let mut out = vec![0u32; BATCH];
-                group.bench_with_input(
-                    BenchmarkId::new("array::distance (loop)", format!("{}b", size * 8)),
-                    &size,
-                    |bencher, _| {
-                        bencher.iter(|| {
-                            for (i, target) in black_box(&targets).iter().enumerate() {
-                                out[i] = hamming_bitwise_fast::array::distance(
-                                    black_box(&source),
-                                    target,
-                                );
-                            }
-                            black_box(out[0])
-                        })
-                    },
-                );
-            }
-            256 => {
-                let source: [u8; 256] = random_bytes();
-                let targets: Vec<[u8; 256]> = random_bytes_array(BATCH);
-                let mut out = vec![0u32; BATCH];
-                group.bench_with_input(
-                    BenchmarkId::new("array::distance (loop)", format!("{}b", size * 8)),
-                    &size,
-                    |bencher, _| {
-                        bencher.iter(|| {
-                            for (i, target) in black_box(&targets).iter().enumerate() {
-                                out[i] = hamming_bitwise_fast::array::distance(
-                                    black_box(&source),
-                                    target,
-                                );
-                            }
-                            black_box(out[0])
-                        })
-                    },
-                );
-            }
-            _ => {}
-        }
-
-        // slice::batch
-        {
-            let source = random_bytes_vec(size);
-            let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
-            let targets_refs: Vec<&[u8]> = targets.iter().map(|v| v.as_slice()).collect();
-            let mut out = vec![0u32; BATCH];
-
-            group.bench_with_input(
-                BenchmarkId::new("slice::batch", format!("{}b", size * 8)),
-                &size,
-                |bencher, _| {
-                    bencher.iter(|| {
-                        hamming_bitwise_fast::slice::batch(
-                            black_box(&source),
-                            black_box(&targets_refs),
-                            black_box(&mut out),
-                        );
-                        black_box(out[0])
-                    })
-                },
-            );
-        }
-
-        // slice::distance (loop)
-        {
-            let source = random_bytes_vec(size);
-            let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
-            let mut out = vec![0u32; BATCH];
-
-            group.bench_with_input(
-                BenchmarkId::new("slice::distance (loop)", format!("{}b", size * 8)),
-                &size,
-                |bencher, _| {
-                    bencher.iter(|| {
-                        for (i, target) in black_box(&targets).iter().enumerate() {
-                            out[i] = hamming_bitwise_fast::slice::distance(
-                                black_box(&source),
-                                target,
-                            );
-                        }
-                        black_box(out[0])
-                    })
-                },
-            );
-        }
-
-        // hamming_bitwise_fast_v1 batch (baseline - no arch targeting)
-        {
-            let source = random_bytes_vec(size);
-            let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
-            let mut out = vec![0u32; BATCH];
-
-            group.bench_with_input(
-                BenchmarkId::new("hamming_bitwise_fast_v1", format!("{}b", size * 8)),
-                &size,
-                |bencher, _| {
-                    bencher.iter(|| {
-                        for (i, target) in black_box(&targets).iter().enumerate() {
-                            out[i] = hamming_v1(black_box(&source), target);
-                        }
-                        black_box(out[0])
-                    })
-                },
-            );
-        }
-
-        // simsimd batch
-        {
-            let source = random_bytes_vec(size);
-            let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
-            let mut out = vec![0f64; BATCH];
-
-            group.bench_with_input(BenchmarkId::new("simsimd", format!("{}b", size * 8)), &size, |bencher, _| {
-                bencher.iter(|| {
-                    for (i, target) in black_box(&targets).iter().enumerate() {
-                        out[i] = simsimd::BinarySimilarity::hamming(black_box(&source), target)
-                            .unwrap_or(0.0);
-                    }
-                    black_box(out[0] as u64)
-                })
-            });
-        }
-
-        // hamming crate batch
-        {
-            let source = random_bytes_vec(size);
-            let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
-            let mut out = vec![0u64; BATCH];
-
-            group.bench_with_input(
-                BenchmarkId::new("hamming_crate", format!("{}b", size * 8)),
-                &size,
-                |bencher, _| {
-                    bencher.iter(|| {
-                        for (i, target) in black_box(&targets).iter().enumerate() {
-                            out[i] =
-                                hamming::distance_fast(black_box(&source), target).unwrap_or(0);
-                        }
-                        black_box(out[0])
-                    })
-                },
-            );
-        }
-
-        // triple_accel batch
-        {
-            let source = random_bytes_vec(size);
-            let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
-            let mut out = vec![0u32; BATCH];
-
-            group.bench_with_input(
-                BenchmarkId::new("triple_accel", format!("{}b", size * 8)),
-                &size,
-                |bencher, _| {
-                    bencher.iter(|| {
-                        for (i, target) in black_box(&targets).iter().enumerate() {
-                            out[i] = triple_accel::hamming(black_box(&source), target);
-                        }
-                        black_box(out[0])
-                    })
-                },
-            );
-        }
-
-        // hamming_rs batch (x86 only)
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        {
-            let source = random_bytes_vec(size);
-            let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
-            let mut out = vec![0u64; BATCH];
-
-            group.bench_with_input(
-                BenchmarkId::new("hamming_rs", format!("{}b", size * 8)),
-                &size,
-                |bencher, _| {
-                    bencher.iter(|| {
-                        for (i, target) in black_box(&targets).iter().enumerate() {
-                            out[i] = hamming_rs::distance_faster(black_box(&source), target);
-                        }
-                        black_box(out[0])
-                    })
-                },
-            );
         }
     }
 
@@ -560,21 +556,38 @@ fn threshold_benchmarks(c: &mut Criterion) {
 
     for &size in SIZES {
         let max = (size * 8) as u32 / 10; // ~10% threshold → most random pairs rejected early
-        group.throughput(Throughput::Bits((size * 8 * 2) as u64));
+        group.throughput(Throughput::Bits((size * 8) as u64));
 
-        // array::threshold - requires const generics
         match size {
             64 => {
                 let a: [u8; 64] = random_bytes();
                 let b: [u8; 64] = random_bytes();
+                let a_vec = a.to_vec();
+                let b_vec = b.to_vec();
+                let label = format!("{}b", size * 8);
+
                 group.bench_with_input(
-                    BenchmarkId::new("array::threshold", format!("{}b", size * 8)),
+                    BenchmarkId::new("array::threshold", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
                             black_box(hamming_bitwise_fast::array::threshold(
                                 black_box(&a),
                                 black_box(&b),
+                                black_box(max),
+                            ))
+                        })
+                    },
+                );
+
+                group.bench_with_input(
+                    BenchmarkId::new("slice::threshold", &label),
+                    &size,
+                    |bencher, _| {
+                        bencher.iter(|| {
+                            black_box(hamming_bitwise_fast::slice::threshold(
+                                black_box(&a_vec),
+                                black_box(&b_vec),
                                 black_box(max),
                             ))
                         })
@@ -584,8 +597,12 @@ fn threshold_benchmarks(c: &mut Criterion) {
             96 => {
                 let a: [u8; 96] = random_bytes();
                 let b: [u8; 96] = random_bytes();
+                let a_vec = a.to_vec();
+                let b_vec = b.to_vec();
+                let label = format!("{}b", size * 8);
+
                 group.bench_with_input(
-                    BenchmarkId::new("array::threshold", format!("{}b", size * 8)),
+                    BenchmarkId::new("array::threshold", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -597,12 +614,30 @@ fn threshold_benchmarks(c: &mut Criterion) {
                         })
                     },
                 );
+
+                group.bench_with_input(
+                    BenchmarkId::new("slice::threshold", &label),
+                    &size,
+                    |bencher, _| {
+                        bencher.iter(|| {
+                            black_box(hamming_bitwise_fast::slice::threshold(
+                                black_box(&a_vec),
+                                black_box(&b_vec),
+                                black_box(max),
+                            ))
+                        })
+                    },
+                );
             }
             128 => {
                 let a: [u8; 128] = random_bytes();
                 let b: [u8; 128] = random_bytes();
+                let a_vec = a.to_vec();
+                let b_vec = b.to_vec();
+                let label = format!("{}b", size * 8);
+
                 group.bench_with_input(
-                    BenchmarkId::new("array::threshold", format!("{}b", size * 8)),
+                    BenchmarkId::new("array::threshold", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -610,6 +645,34 @@ fn threshold_benchmarks(c: &mut Criterion) {
                                 black_box(&a),
                                 black_box(&b),
                                 black_box(max),
+                            ))
+                        })
+                    },
+                );
+
+                group.bench_with_input(
+                    BenchmarkId::new("slice::threshold", &label),
+                    &size,
+                    |bencher, _| {
+                        bencher.iter(|| {
+                            black_box(hamming_bitwise_fast::slice::threshold(
+                                black_box(&a_vec),
+                                black_box(&b_vec),
+                                black_box(max),
+                            ))
+                        })
+                    },
+                );
+
+                // For comparison: full distance (no early exit)
+                group.bench_with_input(
+                    BenchmarkId::new("array::distance (no early exit)", &label),
+                    &size,
+                    |bencher, _| {
+                        bencher.iter(|| {
+                            black_box(hamming_bitwise_fast::array::distance(
+                                black_box(&a),
+                                black_box(&b),
                             ))
                         })
                     },
@@ -618,8 +681,12 @@ fn threshold_benchmarks(c: &mut Criterion) {
             256 => {
                 let a: [u8; 256] = random_bytes();
                 let b: [u8; 256] = random_bytes();
+                let a_vec = a.to_vec();
+                let b_vec = b.to_vec();
+                let label = format!("{}b", size * 8);
+
                 group.bench_with_input(
-                    BenchmarkId::new("array::threshold", format!("{}b", size * 8)),
+                    BenchmarkId::new("array::threshold", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -631,42 +698,16 @@ fn threshold_benchmarks(c: &mut Criterion) {
                         })
                     },
                 );
-            }
-            _ => {}
-        }
 
-        // slice::threshold
-        {
-            let a = random_bytes_vec(size);
-            let b = random_bytes_vec(size);
-            group.bench_with_input(
-                BenchmarkId::new("slice::threshold", format!("{}b", size * 8)),
-                &size,
-                |bencher, _| {
-                    bencher.iter(|| {
-                        black_box(hamming_bitwise_fast::slice::threshold(
-                            black_box(&a),
-                            black_box(&b),
-                            black_box(max),
-                        ))
-                    })
-                },
-            );
-        }
-
-        // For comparison: full distance (no early exit)
-        match size {
-            128 => {
-                let a: [u8; 128] = random_bytes();
-                let b: [u8; 128] = random_bytes();
                 group.bench_with_input(
-                    BenchmarkId::new("array::distance (no early exit)", format!("{}b", size * 8)),
+                    BenchmarkId::new("slice::threshold", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
-                            black_box(hamming_bitwise_fast::array::distance(
-                                black_box(&a),
-                                black_box(&b),
+                            black_box(hamming_bitwise_fast::slice::threshold(
+                                black_box(&a_vec),
+                                black_box(&b_vec),
+                                black_box(max),
                             ))
                         })
                     },
@@ -688,22 +729,43 @@ fn batch_threshold_benchmarks(c: &mut Criterion) {
 
     for &size in SIZES {
         let max = (size * 8) as u32 / 10; // ~10% threshold
-        group.throughput(Throughput::Bits((size * 8 * 2 * BATCH) as u64));
+        group.throughput(Throughput::Bits((size * 8 * BATCH) as u64));
 
-        // array::batch_threshold - requires const generics
         match size {
             64 => {
                 let source: [u8; 64] = random_bytes();
                 let targets: Vec<[u8; 64]> = random_bytes_array(BATCH);
+                let source_vec = source.to_vec();
+                let targets_vecs: Vec<Vec<u8>> =
+                    targets.iter().map(|t| t.to_vec()).collect();
+                let targets_refs: Vec<&[u8]> =
+                    targets_vecs.iter().map(|v| v.as_slice()).collect();
                 let mut out = vec![0u32; BATCH];
+                let label = format!("{}b", size * 8);
+
                 group.bench_with_input(
-                    BenchmarkId::new("array::batch_threshold", format!("{}b", size * 8)),
+                    BenchmarkId::new("array::batch_threshold", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
                             black_box(hamming_bitwise_fast::array::batch_threshold(
                                 black_box(&source),
                                 black_box(&targets),
+                                black_box(max),
+                                black_box(&mut out),
+                            ))
+                        })
+                    },
+                );
+
+                group.bench_with_input(
+                    BenchmarkId::new("slice::batch_threshold", &label),
+                    &size,
+                    |bencher, _| {
+                        bencher.iter(|| {
+                            black_box(hamming_bitwise_fast::slice::batch_threshold(
+                                black_box(&source_vec),
+                                black_box(&targets_refs),
                                 black_box(max),
                                 black_box(&mut out),
                             ))
@@ -714,15 +776,37 @@ fn batch_threshold_benchmarks(c: &mut Criterion) {
             96 => {
                 let source: [u8; 96] = random_bytes();
                 let targets: Vec<[u8; 96]> = random_bytes_array(BATCH);
+                let source_vec = source.to_vec();
+                let targets_vecs: Vec<Vec<u8>> =
+                    targets.iter().map(|t| t.to_vec()).collect();
+                let targets_refs: Vec<&[u8]> =
+                    targets_vecs.iter().map(|v| v.as_slice()).collect();
                 let mut out = vec![0u32; BATCH];
+                let label = format!("{}b", size * 8);
+
                 group.bench_with_input(
-                    BenchmarkId::new("array::batch_threshold", format!("{}b", size * 8)),
+                    BenchmarkId::new("array::batch_threshold", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
                             black_box(hamming_bitwise_fast::array::batch_threshold(
                                 black_box(&source),
                                 black_box(&targets),
+                                black_box(max),
+                                black_box(&mut out),
+                            ))
+                        })
+                    },
+                );
+
+                group.bench_with_input(
+                    BenchmarkId::new("slice::batch_threshold", &label),
+                    &size,
+                    |bencher, _| {
+                        bencher.iter(|| {
+                            black_box(hamming_bitwise_fast::slice::batch_threshold(
+                                black_box(&source_vec),
+                                black_box(&targets_refs),
                                 black_box(max),
                                 black_box(&mut out),
                             ))
@@ -733,9 +817,16 @@ fn batch_threshold_benchmarks(c: &mut Criterion) {
             128 => {
                 let source: [u8; 128] = random_bytes();
                 let targets: Vec<[u8; 128]> = random_bytes_array(BATCH);
+                let source_vec = source.to_vec();
+                let targets_vecs: Vec<Vec<u8>> =
+                    targets.iter().map(|t| t.to_vec()).collect();
+                let targets_refs: Vec<&[u8]> =
+                    targets_vecs.iter().map(|v| v.as_slice()).collect();
                 let mut out = vec![0u32; BATCH];
+                let label = format!("{}b", size * 8);
+
                 group.bench_with_input(
-                    BenchmarkId::new("array::batch_threshold", format!("{}b", size * 8)),
+                    BenchmarkId::new("array::batch_threshold", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -748,60 +839,25 @@ fn batch_threshold_benchmarks(c: &mut Criterion) {
                         })
                     },
                 );
-            }
-            256 => {
-                let source: [u8; 256] = random_bytes();
-                let targets: Vec<[u8; 256]> = random_bytes_array(BATCH);
-                let mut out = vec![0u32; BATCH];
+
                 group.bench_with_input(
-                    BenchmarkId::new("array::batch_threshold", format!("{}b", size * 8)),
+                    BenchmarkId::new("slice::batch_threshold", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
-                            black_box(hamming_bitwise_fast::array::batch_threshold(
-                                black_box(&source),
-                                black_box(&targets),
+                            black_box(hamming_bitwise_fast::slice::batch_threshold(
+                                black_box(&source_vec),
+                                black_box(&targets_refs),
                                 black_box(max),
                                 black_box(&mut out),
                             ))
                         })
                     },
                 );
-            }
-            _ => {}
-        }
 
-        // slice::batch_threshold
-        {
-            let source = random_bytes_vec(size);
-            let targets: Vec<Vec<u8>> = (0..BATCH).map(|_| random_bytes_vec(size)).collect();
-            let targets_refs: Vec<&[u8]> = targets.iter().map(|v| v.as_slice()).collect();
-            let mut out = vec![0u32; BATCH];
-
-            group.bench_with_input(
-                BenchmarkId::new("slice::batch_threshold", format!("{}b", size * 8)),
-                &size,
-                |bencher, _| {
-                    bencher.iter(|| {
-                        black_box(hamming_bitwise_fast::slice::batch_threshold(
-                            black_box(&source),
-                            black_box(&targets_refs),
-                            black_box(max),
-                            black_box(&mut out),
-                        ))
-                    })
-                },
-            );
-        }
-
-        // For comparison: array::batch (no early exit) at 1024b
-        match size {
-            128 => {
-                let source: [u8; 128] = random_bytes();
-                let targets: Vec<[u8; 128]> = random_bytes_array(BATCH);
-                let mut out = vec![0u32; BATCH];
+                // For comparison: array::batch (no early exit) at 1024b
                 group.bench_with_input(
-                    BenchmarkId::new("array::batch (no early exit)", format!("{}b", size * 8)),
+                    BenchmarkId::new("array::batch (no early exit)", &label),
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
@@ -811,6 +867,47 @@ fn batch_threshold_benchmarks(c: &mut Criterion) {
                                 black_box(&mut out),
                             );
                             black_box(out[0])
+                        })
+                    },
+                );
+            }
+            256 => {
+                let source: [u8; 256] = random_bytes();
+                let targets: Vec<[u8; 256]> = random_bytes_array(BATCH);
+                let source_vec = source.to_vec();
+                let targets_vecs: Vec<Vec<u8>> =
+                    targets.iter().map(|t| t.to_vec()).collect();
+                let targets_refs: Vec<&[u8]> =
+                    targets_vecs.iter().map(|v| v.as_slice()).collect();
+                let mut out = vec![0u32; BATCH];
+                let label = format!("{}b", size * 8);
+
+                group.bench_with_input(
+                    BenchmarkId::new("array::batch_threshold", &label),
+                    &size,
+                    |bencher, _| {
+                        bencher.iter(|| {
+                            black_box(hamming_bitwise_fast::array::batch_threshold(
+                                black_box(&source),
+                                black_box(&targets),
+                                black_box(max),
+                                black_box(&mut out),
+                            ))
+                        })
+                    },
+                );
+
+                group.bench_with_input(
+                    BenchmarkId::new("slice::batch_threshold", &label),
+                    &size,
+                    |bencher, _| {
+                        bencher.iter(|| {
+                            black_box(hamming_bitwise_fast::slice::batch_threshold(
+                                black_box(&source_vec),
+                                black_box(&targets_refs),
+                                black_box(max),
+                                black_box(&mut out),
+                            ))
                         })
                     },
                 );

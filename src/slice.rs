@@ -31,8 +31,7 @@ define_hamming_fn! {
     /// Compute Hamming distance from one source slice to many target slices
     /// (one-to-many).
     ///
-    /// Faster than calling [`distance`] in a loop on x86 with `multiversion_x86`,
-    /// because CPU dispatch happens once per batch instead of once per comparison.
+    /// Faster than calling [`distance`] in a loop for one-to-many comparisons.
     ///
     /// # Panics
     ///
@@ -54,9 +53,8 @@ define_hamming_fn! {
     pub fn batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
         assert_eq!(targets.len(), out.len());
 
-        // For slices, the data layout (`&[&[u8]]`) isn't contiguous, so the compiler
-        // won't use gather instructions. Inlining the impl is faster than calling
-        // the MV single function because it avoids dispatch overhead per iteration.
+        // For slices, the data layout (&[&[u8]]) isn't contiguous, so gather
+        // instructions aren't a concern. Calling slice_impl directly is faster.
         for (target, dist) in targets.iter().zip(out.iter_mut()) {
             *dist = slice_impl(source, target);
         }
@@ -67,8 +65,8 @@ define_hamming_fn! {
     /// Compute Hamming distance with early exit when distance exceeds a threshold.
     ///
     /// Returns `Some(distance)` if the distance is `<= max`, or `None` if it
-    /// exceeds the threshold. Internally checks the running distance every 512
-    /// bits (64 bytes).
+    /// exceeds the threshold. Internally checks the running distance every 256
+    /// bits (32 bytes).
     ///
     /// # Panics
     ///
