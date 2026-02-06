@@ -2,7 +2,7 @@
 name = "hamming-bitwise-fast"
 autobenches = false
 description = "A fast, zero-dependency implementation of bitwise Hamming Distance using a method amenable to auto-vectorization."
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 authors = ["Evan Schwartz"]
 license = "MIT OR Apache-2.0"
@@ -62,4 +62,12 @@ harness = false
 
 [[bench]]
 name = "batch_input_type"
+harness = false
+
+[[bench]]
+name = "u64_storage"
+harness = false
+
+[[bench]]
+name = "threshold"
 harness = false

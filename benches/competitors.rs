@@ -73,7 +73,7 @@ fn single_benchmarks(c: &mut Criterion) {
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
-                            black_box(hamming_bitwise_fast::hamming_bitwise_array(
+                            black_box(hamming_bitwise_fast::array::distance(
                                 black_box(&a),
                                 black_box(&b),
                             ))
@@ -89,7 +89,7 @@ fn single_benchmarks(c: &mut Criterion) {
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
-                            black_box(hamming_bitwise_fast::hamming_bitwise_array(
+                            black_box(hamming_bitwise_fast::array::distance(
                                 black_box(&a),
                                 black_box(&b),
                             ))
@@ -105,7 +105,7 @@ fn single_benchmarks(c: &mut Criterion) {
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
-                            black_box(hamming_bitwise_fast::hamming_bitwise_array(
+                            black_box(hamming_bitwise_fast::array::distance(
                                 black_box(&a),
                                 black_box(&b),
                             ))
@@ -121,7 +121,7 @@ fn single_benchmarks(c: &mut Criterion) {
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
-                            black_box(hamming_bitwise_fast::hamming_bitwise_array(
+                            black_box(hamming_bitwise_fast::array::distance(
                                 black_box(&a),
                                 black_box(&b),
                             ))
@@ -141,7 +141,7 @@ fn single_benchmarks(c: &mut Criterion) {
                 &size,
                 |bencher, _| {
                     bencher.iter(|| {
-                        black_box(hamming_bitwise_fast::hamming_bitwise_slice(
+                        black_box(hamming_bitwise_fast::slice::distance(
                             black_box(&a),
                             black_box(&b),
                         ))
@@ -245,7 +245,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
-                            hamming_bitwise_fast::hamming_bitwise_array_batch(
+                            hamming_bitwise_fast::array::batch(
                                 black_box(&source),
                                 black_box(&targets),
                                 black_box(&mut out),
@@ -264,7 +264,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
-                            hamming_bitwise_fast::hamming_bitwise_array_batch(
+                            hamming_bitwise_fast::array::batch(
                                 black_box(&source),
                                 black_box(&targets),
                                 black_box(&mut out),
@@ -283,7 +283,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
-                            hamming_bitwise_fast::hamming_bitwise_array_batch(
+                            hamming_bitwise_fast::array::batch(
                                 black_box(&source),
                                 black_box(&targets),
                                 black_box(&mut out),
@@ -302,7 +302,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                     &size,
                     |bencher, _| {
                         bencher.iter(|| {
-                            hamming_bitwise_fast::hamming_bitwise_array_batch(
+                            hamming_bitwise_fast::array::batch(
                                 black_box(&source),
                                 black_box(&targets),
                                 black_box(&mut out),
@@ -327,7 +327,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                     |bencher, _| {
                         bencher.iter(|| {
                             for (i, target) in black_box(&targets).iter().enumerate() {
-                                out[i] = hamming_bitwise_fast::hamming_bitwise_array(
+                                out[i] = hamming_bitwise_fast::array::distance(
                                     black_box(&source),
                                     target,
                                 );
@@ -347,7 +347,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                     |bencher, _| {
                         bencher.iter(|| {
                             for (i, target) in black_box(&targets).iter().enumerate() {
-                                out[i] = hamming_bitwise_fast::hamming_bitwise_array(
+                                out[i] = hamming_bitwise_fast::array::distance(
                                     black_box(&source),
                                     target,
                                 );
@@ -367,7 +367,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                     |bencher, _| {
                         bencher.iter(|| {
                             for (i, target) in black_box(&targets).iter().enumerate() {
-                                out[i] = hamming_bitwise_fast::hamming_bitwise_array(
+                                out[i] = hamming_bitwise_fast::array::distance(
                                     black_box(&source),
                                     target,
                                 );
@@ -387,7 +387,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                     |bencher, _| {
                         bencher.iter(|| {
                             for (i, target) in black_box(&targets).iter().enumerate() {
-                                out[i] = hamming_bitwise_fast::hamming_bitwise_array(
+                                out[i] = hamming_bitwise_fast::array::distance(
                                     black_box(&source),
                                     target,
                                 );
@@ -412,7 +412,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                 &size,
                 |bencher, _| {
                     bencher.iter(|| {
-                        hamming_bitwise_fast::hamming_bitwise_slice_batch(
+                        hamming_bitwise_fast::slice::batch(
                             black_box(&source),
                             black_box(&targets_refs),
                             black_box(&mut out),
@@ -435,7 +435,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                 |bencher, _| {
                     bencher.iter(|| {
                         for (i, target) in black_box(&targets).iter().enumerate() {
-                            out[i] = hamming_bitwise_fast::hamming_bitwise_slice(
+                            out[i] = hamming_bitwise_fast::slice::distance(
                                 black_box(&source),
                                 target,
                             );

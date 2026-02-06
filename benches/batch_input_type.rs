@@ -40,10 +40,7 @@ mod helpers;
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use hamming_bitwise_fast::{
-    hamming_bitwise_array, hamming_bitwise_array_batch, hamming_bitwise_slice,
-    hamming_bitwise_slice_batch,
-};
+use hamming_bitwise_fast::{array, slice};
 use helpers::{random_bytes, random_bytes_array, random_bytes_vec};
 
 const BATCH: usize = 1000;
@@ -67,7 +64,7 @@ fn benchmarks(c: &mut Criterion) {
 
                 group.bench_with_input(BenchmarkId::new("array_batch", &bits), &$size, |bencher, _| {
                     bencher.iter(|| {
-                        hamming_bitwise_array_batch(black_box(&source), black_box(&targets), &mut out);
+                        array::batch(black_box(&source), black_box(&targets), &mut out);
                         black_box(out[0])
                     })
                 });
@@ -76,7 +73,7 @@ fn benchmarks(c: &mut Criterion) {
                 let targets_refs: Vec<&[u8]> = targets.iter().map(|a| a.as_slice()).collect();
                 group.bench_with_input(BenchmarkId::new("array_via_slice_batch", &bits), &$size, |bencher, _| {
                     bencher.iter(|| {
-                        hamming_bitwise_slice_batch(
+                        slice::batch(
                             black_box(&source[..]),
                             black_box(&targets_refs),
                             &mut out,
@@ -89,7 +86,7 @@ fn benchmarks(c: &mut Criterion) {
                 group.bench_with_input(BenchmarkId::new("array_loop_single", &bits), &$size, |bencher, _| {
                     bencher.iter(|| {
                         for (target, dist) in black_box(&targets).iter().zip(out.iter_mut()) {
-                            *dist = hamming_bitwise_array(black_box(&source), target);
+                            *dist = array::distance(black_box(&source), target);
                         }
                         black_box(out[0])
                     })
@@ -105,7 +102,7 @@ fn benchmarks(c: &mut Criterion) {
 
                 group.bench_with_input(BenchmarkId::new("slice_batch", &bits), &$size, |bencher, _| {
                     bencher.iter(|| {
-                        hamming_bitwise_slice_batch(black_box(&source), black_box(&targets_refs), &mut out);
+                        slice::batch(black_box(&source), black_box(&targets_refs), &mut out);
                         black_box(out[0])
                     })
                 });
@@ -114,7 +111,7 @@ fn benchmarks(c: &mut Criterion) {
                 group.bench_with_input(BenchmarkId::new("slice_loop_single", &bits), &$size, |bencher, _| {
                     bencher.iter(|| {
                         for (target, dist) in black_box(&targets).iter().zip(out.iter_mut()) {
-                            *dist = hamming_bitwise_slice(black_box(&source), target);
+                            *dist = slice::distance(black_box(&source), target);
                         }
                         black_box(out[0])
                     })

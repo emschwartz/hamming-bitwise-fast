@@ -227,7 +227,7 @@ checksum = "65043da274378d68241eb9a8f8f8aa54e349136f7b8e12f63e3ef44043cc30e1"
 
 [[package]]
 name = "hamming-bitwise-fast"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "criterion",
  "hamming",

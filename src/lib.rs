@@ -1,4 +1,4 @@
-//! A fast, zero-dependency\* implementation of bitwise Hamming Distance using
+//! A fast, zero-dependency\* implementation of bitwise Hamming distance using
 //! a method amenable to auto-vectorization.
 //!
 //! _\* Zero dependencies by default. The optional `multiversion_x86` feature adds the
@@ -6,39 +6,53 @@
 //!
 //! # Quick Start
 //!
-//! For byte slices (variable-length):
 //! ```
-//! use hamming_bitwise_fast::{hamming_bitwise_slice, hamming_bitwise_slice_batch};
+//! use hamming_bitwise_fast::array;
 //!
-//! // Single comparison
-//! let a = vec![0xFFu8; 128];
-//! let b = vec![0x00u8; 128];
-//! let distance = hamming_bitwise_slice(&a, &b); // 1024
-//!
-//! // Batch comparison (one source vs many targets)
-//! // Pre-allocate result vec once and reuse across calls for best performance
-//! let source = vec![0x00u8; 128];
-//! let targets: Vec<&[u8]> = vec![&a, &b];
-//! let mut distances = vec![0u32; 2];
-//! hamming_bitwise_slice_batch(&source, &targets, &mut distances); // [1024, 0]
-//! ```
-//!
-//! For fixed-size arrays (faster when size is known at compile time):
-//! ```
-//! use hamming_bitwise_fast::{hamming_bitwise_array, hamming_bitwise_array_batch};
-//!
-//! // Single comparison
 //! let a: [u8; 128] = [0xFF; 128];  // 1024-bit vectors
 //! let b: [u8; 128] = [0x00; 128];
-//! let distance = hamming_bitwise_array(&a, &b); // 1024
 //!
-//! // Batch comparison (one source vs many targets)
-//! // Pre-allocate result vec once and reuse across calls for best performance
-//! let source: [u8; 128] = [0x00; 128];
-//! let targets: Vec<[u8; 128]> = vec![a, b];
+//! // Single comparison
+//! let distance = array::distance(&a, &b);  // 1024
+//!
+//! // One source vs many targets
+//! let targets = vec![a, b];
 //! let mut distances = vec![0u32; 2];
-//! hamming_bitwise_array_batch(&source, &targets, &mut distances); // [1024, 0]
+//! array::batch(&a, &targets, &mut distances);
 //! ```
+//!
+//! # Choosing an API
+//!
+//! ## Fixed-size arrays vs slices
+//!
+//! If the vector size is known at compile time (e.g., 1024-bit embeddings are
+//! `[u8; 128]`), use the [`mod@array`] module — the compiler can fully unroll and
+//! vectorize the loop. Use [`mod@slice`] when sizes vary at runtime.
+//!
+//! ## Single vs batch
+//!
+//! Use [`array::batch`] or [`slice::batch`] when comparing one source against
+//! many targets. Batch amortizes dispatch overhead and is the fastest approach
+//! for one-to-many comparisons.
+//!
+//! ## Early exit for top-k search (`threshold` / `batch_threshold`)
+//!
+//! [`array::threshold`] and [`array::batch_threshold`] add an early-exit check: if
+//! the running Hamming distance exceeds a threshold partway through the vector,
+//! computation stops immediately.
+//!
+//! **Use `batch_threshold` when:**
+//! - Searching for nearest neighbors or top-k closest items
+//! - You maintain a threshold (e.g., worst score in a top-k heap)
+//! - Most candidates will be rejected (far from the query)
+//!
+//! The check runs every 512 bits (64 bytes). For 1024-bit vectors, a reject
+//! can happen after processing only the first half. With embeddings trained
+//! using Matryoshka Representation Learning (MRL), semantic information is
+//! concentrated in early bits, making early exit particularly effective.
+//!
+//! **Use regular `batch` when** you need all distances or most comparisons
+//! will pass the threshold.
 //!
 //! # Platform Behavior
 //!
@@ -59,9 +73,6 @@
 //!
 //! On ARM (including Apple Silicon), the default build is already fast.
 //!
-//! Batch operations ([`hamming_bitwise_array_batch`], [`hamming_bitwise_slice_batch`])
-//! are faster for one-to-many comparisons.
-//!
 //! # Feature Flags
 //!
 //! - `multiversion_x86`: Enables runtime CPU detection for optimal SIMD on x86.
@@ -69,6 +80,9 @@
 
 #[cfg(test)]
 mod tests;
+
+pub mod array;
+pub mod slice;
 
 // ============================================================================
 // Private implementation functions - no multiversion, just #[inline(always)]
@@ -78,7 +92,7 @@ mod tests;
 /// x86 slice implementation using u64 chunks for auto-vectorization.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
-fn slice_impl(a: &[u8], b: &[u8]) -> u32 {
+pub(crate) fn slice_impl(a: &[u8], b: &[u8]) -> u32 {
     assert_eq!(a.len(), b.len());
     let a_chunks = a.chunks_exact(8);
     let b_chunks = b.chunks_exact(8);
@@ -106,7 +120,7 @@ fn slice_impl(a: &[u8], b: &[u8]) -> u32 {
 /// x86 array implementation using u64 chunks for auto-vectorization.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
-fn array_impl<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
+pub(crate) fn array_impl<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     let a_chunks = a.chunks_exact(8);
     let b_chunks = b.chunks_exact(8);
 
@@ -133,7 +147,7 @@ fn array_impl<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
 /// Non-x86 slice implementation using simple byte iteration.
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
 #[inline(always)]
-fn slice_impl(a: &[u8], b: &[u8]) -> u32 {
+pub(crate) fn slice_impl(a: &[u8], b: &[u8]) -> u32 {
     assert_eq!(a.len(), b.len());
     a.iter()
         .zip(b.iter())
@@ -144,11 +158,114 @@ fn slice_impl(a: &[u8], b: &[u8]) -> u32 {
 /// Non-x86 array implementation using simple byte iteration.
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
 #[inline(always)]
-fn array_impl<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
+pub(crate) fn array_impl<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     a.iter()
         .zip(b.iter())
         .map(|(x, y)| (x ^ y).count_ones())
         .sum()
+}
+
+// ============================================================================
+// Threshold implementation functions
+// ============================================================================
+
+/// Block size for early-exit threshold checks (in bytes).
+/// Each block is converted to a fixed-size array for auto-vectorization,
+/// then the running distance is checked against the threshold between blocks.
+const THRESHOLD_BLOCK_SIZE: usize = 64;
+
+/// Block-based early-exit for arrays: process fixed-size blocks with vectorizable
+/// inner loops, checking the threshold only between blocks.
+///
+/// The key trick: each block is converted to `&[u8; THRESHOLD_BLOCK_SIZE]` via
+/// `try_into()`, giving the compiler a fixed-size array it can fully vectorize
+/// (NEON cnt.16b on ARM, VPOPCNTDQ on x86). The threshold check happens outside
+/// the vectorized inner loop, preserving auto-vectorization.
+#[inline(always)]
+pub(crate) fn array_threshold_impl<const N: usize>(
+    a: &[u8; N],
+    b: &[u8; N],
+    threshold: u32,
+) -> Option<u32> {
+    let mut distance: u32 = 0;
+
+    let a_blocks = a.chunks_exact(THRESHOLD_BLOCK_SIZE);
+    let b_blocks = b.chunks_exact(THRESHOLD_BLOCK_SIZE);
+    let a_rem = a_blocks.remainder();
+    let b_rem = b_blocks.remainder();
+
+    for (a_block, b_block) in a_blocks.zip(b_blocks) {
+        // Convert to fixed-size array so the compiler can fully unroll + vectorize.
+        let a_arr: &[u8; THRESHOLD_BLOCK_SIZE] = a_block.try_into().unwrap();
+        let b_arr: &[u8; THRESHOLD_BLOCK_SIZE] = b_block.try_into().unwrap();
+
+        let block_dist: u32 = a_arr
+            .iter()
+            .zip(b_arr.iter())
+            .map(|(x, y)| (x ^ y).count_ones())
+            .sum();
+
+        distance += block_dist;
+        if distance > threshold {
+            return None;
+        }
+    }
+
+    // Remainder (< THRESHOLD_BLOCK_SIZE bytes) — not worth early-exiting from
+    let rem_dist: u32 = a_rem
+        .iter()
+        .zip(b_rem.iter())
+        .map(|(x, y)| (x ^ y).count_ones())
+        .sum();
+    distance += rem_dist;
+
+    if distance <= threshold {
+        Some(distance)
+    } else {
+        None
+    }
+}
+
+/// Block-based early-exit for slices: same algorithm as `array_threshold_impl`
+/// but accepts `&[u8]` instead of `&[u8; N]`.
+#[inline(always)]
+pub(crate) fn slice_threshold_impl(a: &[u8], b: &[u8], threshold: u32) -> Option<u32> {
+    assert_eq!(a.len(), b.len());
+    let mut distance: u32 = 0;
+
+    let a_blocks = a.chunks_exact(THRESHOLD_BLOCK_SIZE);
+    let b_blocks = b.chunks_exact(THRESHOLD_BLOCK_SIZE);
+    let a_rem = a_blocks.remainder();
+    let b_rem = b_blocks.remainder();
+
+    for (a_block, b_block) in a_blocks.zip(b_blocks) {
+        let a_arr: &[u8; THRESHOLD_BLOCK_SIZE] = a_block.try_into().unwrap();
+        let b_arr: &[u8; THRESHOLD_BLOCK_SIZE] = b_block.try_into().unwrap();
+
+        let block_dist: u32 = a_arr
+            .iter()
+            .zip(b_arr.iter())
+            .map(|(x, y)| (x ^ y).count_ones())
+            .sum();
+
+        distance += block_dist;
+        if distance > threshold {
+            return None;
+        }
+    }
+
+    let rem_dist: u32 = a_rem
+        .iter()
+        .zip(b_rem.iter())
+        .map(|(x, y)| (x ^ y).count_ones())
+        .sum();
+    distance += rem_dist;
+
+    if distance <= threshold {
+        Some(distance)
+    } else {
+        None
+    }
 }
 
 // ============================================================================
@@ -189,138 +306,21 @@ macro_rules! define_hamming_fn {
     };
 }
 
-define_hamming_fn! {
-    /// Compute the bitwise Hamming distance between two byte slices.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the slices have different lengths.
-    ///
-    /// # See Also
-    ///
-    /// - [`hamming_bitwise_array`] - Faster when size is known at compile time
-    /// - [`hamming_bitwise_slice_batch`] - Much faster for one-to-many comparisons
-    /// - [Platform Behavior](crate#platform-behavior) - Performance by platform
-    pub fn hamming_bitwise_slice(a: &[u8], b: &[u8]) -> u32 {
-        slice_impl(a, b)
-    }
-}
+// Make the macro available to submodules
+pub(crate) use define_hamming_fn;
 
-define_hamming_fn! {
-    /// Compute Hamming distance for fixed-size byte arrays.
-    ///
-    /// # See Also
-    ///
-    /// - [`hamming_bitwise_array_batch`] - Much faster for one-to-many comparisons
-    /// - [Platform Behavior](crate#platform-behavior) - Performance by platform
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use hamming_bitwise_fast::hamming_bitwise_array;
-    ///
-    /// let a: [u8; 128] = [0x12; 128];  // 1024-bit
-    /// let b: [u8; 128] = [0xFE; 128];
-    /// let distance = hamming_bitwise_array(&a, &b);
-    /// ```
-    pub fn hamming_bitwise_array<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
-        array_impl(a, b)
-    }
-}
+// ============================================================================
+// Deprecated compatibility shim
+// ============================================================================
 
-define_hamming_fn! {
-    /// Compute Hamming distance from one source to many targets (one-to-many).
-    ///
-    /// On x86 with the `multiversion_x86` feature, this is faster than calling
-    /// [`hamming_bitwise_array`] in a loop because CPU dispatch happens once
-    /// per batch instead of once per comparison.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `out.len() != targets.len()`.
-    ///
-    /// # See Also
-    ///
-    /// - [Platform Behavior](crate#platform-behavior) - Performance by platform
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use hamming_bitwise_fast::hamming_bitwise_array_batch;
-    ///
-    /// let source: [u8; 128] = [0; 128];
-    /// let targets = vec![[1u8; 128], [2u8; 128], [3u8; 128]];
-    /// let mut distances = vec![0u32; 3];  // pre-allocate and reuse
-    ///
-    /// hamming_bitwise_array_batch(&source, &targets, &mut distances);
-    /// ```
-    pub fn hamming_bitwise_array_batch<const N: usize>(
-        source: &[u8; N],
-        targets: &[[u8; N]],
-        out: &mut [u32],
-    ) {
-        assert_eq!(targets.len(), out.len());
-
-        // Call hamming_bitwise_array directly. The multiversion dispatch creates a
-        // boundary that prevents the compiler from seeing the contiguous `&[[u8; N]]`
-        // layout, avoiding slow VPGATHERQQ gather instructions. This approach is
-        // ~16% faster than using black_box to hide the memory layout.
-        for (target, dist) in targets.iter().zip(out.iter_mut()) {
-            *dist = hamming_bitwise_array(source, target);
-        }
-    }
-}
-
-define_hamming_fn! {
-    /// Compute Hamming distance from one source slice to many target slices (one-to-many).
-    ///
-    /// This is the slice-based equivalent of [`hamming_bitwise_array_batch`].
-    ///
-    /// On x86 with the `multiversion_x86` feature, this is faster than calling
-    /// [`hamming_bitwise_slice`] in a loop because CPU dispatch happens once
-    /// per batch instead of once per comparison.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `out.len() != targets.len()` or any target has a different length than `source`.
-    ///
-    /// # See Also
-    ///
-    /// - [`hamming_bitwise_array_batch`] - Faster when size is known at compile time
-    /// - [Platform Behavior](crate#platform-behavior) - Performance by platform
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use hamming_bitwise_fast::hamming_bitwise_slice_batch;
-    ///
-    /// let source = vec![0u8; 128];
-    /// let targets_owned: Vec<Vec<u8>> = vec![vec![1u8; 128], vec![2u8; 128]];
-    /// let targets: Vec<&[u8]> = targets_owned.iter().map(|v| v.as_slice()).collect();
-    /// let mut distances = vec![0u32; 2];  // pre-allocate and reuse
-    ///
-    /// hamming_bitwise_slice_batch(&source, &targets, &mut distances);
-    /// ```
-    pub fn hamming_bitwise_slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
-        assert_eq!(targets.len(), out.len());
-
-        // For slices, the data layout (`&[&[u8]]`) isn't contiguous, so the compiler
-        // won't use gather instructions. Inlining the impl is faster than calling
-        // the MV single function because it avoids dispatch overhead per iteration.
-        for (target, dist) in targets.iter().zip(out.iter_mut()) {
-            *dist = slice_impl(source, target);
-        }
-    }
-}
-
-/// Deprecated: Use [`hamming_bitwise_slice`] instead, or consider
-/// [`hamming_bitwise_array`] for fixed-size arrays or
-/// [`hamming_bitwise_array_batch`] for comparing one source against many targets.
+/// Deprecated: Use [`slice::distance`] instead, or consider
+/// [`array::distance`] for fixed-size arrays or
+/// [`array::batch`] for comparing one source against many targets.
 #[deprecated(
     since = "1.1.0",
-    note = "renamed to hamming_bitwise_slice; consider hamming_bitwise_array for fixed-size arrays or hamming_bitwise_array_batch for bulk comparisons"
+    note = "use hamming_bitwise_fast::slice::distance"
 )]
 #[inline(always)]
 pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
-    hamming_bitwise_slice(x, y)
+    slice::distance(x, y)
 }
