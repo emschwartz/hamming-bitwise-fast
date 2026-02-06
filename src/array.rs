@@ -4,7 +4,7 @@
 //! embeddings stored as `[u8; 128]`). The compiler can fully unroll and vectorize
 //! the loop, yielding the fastest code.
 
-use crate::{array_impl, array_threshold_impl, define_hamming_fn};
+use crate::{define_hamming_fn, distance_impl};
 
 define_hamming_fn! {
     /// Compute the bitwise Hamming distance between two fixed-size byte arrays.
@@ -23,7 +23,10 @@ define_hamming_fn! {
     /// let distance = array::distance(&a, &b);
     /// ```
     pub fn distance<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
-        array_impl(a, b)
+        // threshold=u32::MAX means "never early-exit". Since distance is a u32,
+        // `distance > u32::MAX` is statically false, so the compiler optimizes
+        // away the early-exit branch entirely.
+        distance_impl(a, b, u32::MAX).unwrap()
     }
 }
 
@@ -54,7 +57,7 @@ define_hamming_fn! {
     ) {
         assert_eq!(targets.len(), out.len());
 
-        // Call distance() (the public multiversion function) rather than array_impl
+        // Call distance() (the public multiversion function) rather than distance_impl
         // directly. This prevents the compiler from seeing the contiguous &[[u8; N]]
         // layout and emitting slow VPGATHERQQ gather instructions on AVX-512.
         for (target, dist) in targets.iter().zip(out.iter_mut()) {
@@ -95,7 +98,7 @@ define_hamming_fn! {
         b: &[u8; N],
         max: u32,
     ) -> Option<u32> {
-        array_threshold_impl(a, b, max)
+        distance_impl(a, b, max)
     }
 }
 

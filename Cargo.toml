@@ -65,9 +65,9 @@ name = "batch_input_type"
 harness = false
 
 [[bench]]
-name = "u64_storage"
+name = "threshold"
 harness = false
 
 [[bench]]
-name = "threshold"
+name = "simplify"
 harness = false

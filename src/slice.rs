@@ -4,7 +4,7 @@
 //! is known at compile time, prefer the [`array`](crate::array) module for
 //! better performance.
 
-use crate::{define_hamming_fn, slice_impl, slice_threshold_impl};
+use crate::{define_hamming_fn, distance_impl};
 
 define_hamming_fn! {
     /// Compute the bitwise Hamming distance between two byte slices.
@@ -23,7 +23,7 @@ define_hamming_fn! {
     /// let distance = slice::distance(&a, &b);  // 1024
     /// ```
     pub fn distance(a: &[u8], b: &[u8]) -> u32 {
-        slice_impl(a, b)
+        distance_impl(a, b, u32::MAX).unwrap()
     }
 }
 
@@ -54,9 +54,9 @@ define_hamming_fn! {
         assert_eq!(targets.len(), out.len());
 
         // For slices, the data layout (&[&[u8]]) isn't contiguous, so gather
-        // instructions aren't a concern. Calling slice_impl directly is faster.
+        // instructions aren't a concern. Calling distance_impl directly is fine.
         for (target, dist) in targets.iter().zip(out.iter_mut()) {
-            *dist = slice_impl(source, target);
+            *dist = distance_impl(source, target, u32::MAX).unwrap();
         }
     }
 }
@@ -84,7 +84,7 @@ define_hamming_fn! {
     /// assert_eq!(slice::threshold(&a, &b, 2000), Some(1024));
     /// ```
     pub fn threshold(a: &[u8], b: &[u8], max: u32) -> Option<u32> {
-        slice_threshold_impl(a, b, max)
+        distance_impl(a, b, max)
     }
 }
 
@@ -124,7 +124,7 @@ define_hamming_fn! {
         assert_eq!(targets.len(), out.len());
         let mut best = u32::MAX;
         for (target, dist) in targets.iter().zip(out.iter_mut()) {
-            match slice_threshold_impl(source, target, max) {
+            match distance_impl(source, target, max) {
                 Some(d) => {
                     *dist = d;
                     if d < best { best = d; }
