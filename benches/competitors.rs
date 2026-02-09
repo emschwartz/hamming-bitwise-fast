@@ -136,7 +136,7 @@ fn single_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("single");
 
     for &size in SIZES {
-        group.throughput(Throughput::Bits((size * 8) as u64));
+        group.throughput(Throughput::Elements(1));
 
         match size {
             64 => {
@@ -367,7 +367,7 @@ fn batch_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("batch");
 
     for &size in SIZES {
-        group.throughput(Throughput::Bits((size * 8 * BATCH) as u64));
+        group.throughput(Throughput::Elements(BATCH as u64));
 
         match size {
             64 => {
@@ -556,7 +556,7 @@ fn threshold_benchmarks(c: &mut Criterion) {
 
     for &size in SIZES {
         let max = (size * 8) as u32 / 10; // ~10% threshold → most random pairs rejected early
-        group.throughput(Throughput::Bits((size * 8) as u64));
+        group.throughput(Throughput::Elements(1));
 
         match size {
             64 => {
@@ -729,7 +729,7 @@ fn batch_threshold_benchmarks(c: &mut Criterion) {
 
     for &size in SIZES {
         let max = (size * 8) as u32 / 10; // ~10% threshold
-        group.throughput(Throughput::Bits((size * 8 * BATCH) as u64));
+        group.throughput(Throughput::Elements(BATCH as u64));
 
         match size {
             64 => {
