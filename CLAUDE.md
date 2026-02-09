@@ -91,7 +91,20 @@ a.chunks_exact(8).zip(b.chunks_exact(8))
 
 This pattern enables the compiler to use VPOPCNTDQ on AVX-512 CPUs.
 
-**Note:** In `array::batch`, the function calls `array::distance` (the public multiversion function) rather than `array_impl` directly. The multiversion dispatch boundary prevents the compiler from seeing the contiguous `&[[u8; N]]` layout and generating slow VPGATHERQQ gather instructions.
+### Gather Avoidance in Batch Functions
+
+**PERFORMANCE INVARIANT:** `array::batch` and `array::batch_threshold` use
+`std::hint::black_box` on target references to prevent LLVM from generating
+slow AVX-512 VPGATHERQQ gather instructions from the contiguous `&[[u8; N]]`
+layout. This barrier works under LTO and doesn't depend on multiversion internals.
+
+After modifying batch functions, verify:
+1. Inspect x86 AVX-512 assembly for VPGATHERQQ absence (see asm_check example)
+2. Run `cargo criterion --bench batch_input_type` — array_batch ≈ slice_batch
+3. The gather_demo benchmark group provides a direct A/B comparison
+
+This does NOT affect `slice::batch` — `&[&[u8]]` is pointer-indirect, so gathers
+aren't possible regardless.
 
 ### Benchmark Suite
 

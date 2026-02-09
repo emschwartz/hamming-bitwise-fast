@@ -14,6 +14,24 @@
 const THRESHOLD_BLOCK_SIZE: usize = 32;
 
 // ============================================================================
+// PERFORMANCE INVARIANT: AVX-512 Gather Avoidance
+// ============================================================================
+//
+// batch() and batch_threshold() iterate over &[[u8; N]] — contiguous memory.
+// On x86 AVX-512, LLVM can analyze stride patterns across iterations and emit
+// VPGATHERQQ gather instructions. These are 2-10x SLOWER than contiguous
+// VMOVDQU64 loads because each element requires a separate memory fetch.
+//
+// Mitigation: wrap the target reference in std::hint::black_box() to make the
+// pointer opaque. This prevents stride analysis while preserving all other
+// optimizations (loop unrolling, auto-vectorization within each iteration).
+//
+// This invariant MUST be maintained when modifying batch functions.
+// Verify: inspect x86 AVX-512 assembly for absence of VPGATHERQQ.
+// Proof: benches/batch_input_type.rs gather_demo (A/B comparison).
+// ============================================================================
+
+// ============================================================================
 // Private implementation functions
 // ============================================================================
 
@@ -223,11 +241,19 @@ pub fn batch<const N: usize>(
 ) {
     assert_eq!(targets.len(), out.len());
 
-    // Call distance() (the public multiversion function) rather than array_impl
-    // directly. This prevents the compiler from seeing the contiguous &[[u8; N]]
-    // layout and emitting slow VPGATHERQQ gather instructions on AVX-512.
     for (target, dist) in targets.iter().zip(out.iter_mut()) {
-        *dist = distance(source, target);
+        // PERFORMANCE INVARIANT: gather avoidance on x86 AVX-512
+        //
+        // black_box prevents LLVM from analyzing pointer stride patterns across
+        // loop iterations of the contiguous &[[u8; N]] layout. Without this,
+        // LLVM emits VPGATHERQQ instructions that are 2-10x slower than the
+        // contiguous VMOVDQU64 loads we want.
+        //
+        // This is a first-class Rust optimization barrier (inline assembly) that
+        // works under LTO and is independent of multiversion's implementation.
+        // See benches/batch_input_type.rs gather_demo for A/B proof benchmarks.
+        let target = std::hint::black_box(target);
+        *dist = array_impl(source, target);
     }
 }
 
@@ -341,7 +367,9 @@ pub fn batch_threshold<const N: usize>(
     assert_eq!(targets.len(), out.len());
     let mut best = u32::MAX;
     for (target, dist) in targets.iter().zip(out.iter_mut()) {
-        match threshold(source, target, max) {
+        // PERFORMANCE INVARIANT: gather avoidance (see batch() comment above)
+        let target = std::hint::black_box(target);
+        match array_threshold_impl(source, target, max) {
             Some(d) => {
                 *dist = d;
                 if d < best { best = d; }

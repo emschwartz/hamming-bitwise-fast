@@ -13,6 +13,14 @@ pub fn array_batch_128(source: &[u8; 128], targets: &[[u8; 128]], out: &mut [u32
     array::batch(source, targets, out);
 }
 
+// Array batch_threshold - for inspecting gather avoidance in threshold path
+#[no_mangle]
+pub fn array_batch_threshold_128(
+    source: &[u8; 128], targets: &[[u8; 128]], max: u32, out: &mut [u32],
+) -> u32 {
+    array::batch_threshold(source, targets, max, out)
+}
+
 // Slice batch - currently inlines chunking logic on x86
 #[no_mangle]
 pub fn slice_batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
