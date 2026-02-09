@@ -4,141 +4,6 @@
 //! is known at compile time, prefer the [`array`](crate::array) module for
 //! better performance.
 
-/// Block size for early-exit threshold checks (in bytes).
-/// See `array` module and `benches/threshold_block_size.rs` for rationale.
-const THRESHOLD_BLOCK_SIZE: usize = 32;
-
-// ============================================================================
-// Private implementation functions
-// ============================================================================
-
-/// x86 slice implementation using u64 chunks for auto-vectorization.
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[inline(always)]
-fn slice_impl(a: &[u8], b: &[u8]) -> u32 {
-    assert_eq!(a.len(), b.len());
-    let a_chunks = a.chunks_exact(8);
-    let b_chunks = b.chunks_exact(8);
-
-    let main: u32 = a_chunks
-        .clone()
-        .zip(b_chunks.clone())
-        .map(|(a, b)| {
-            let a = u64::from_ne_bytes(a.try_into().unwrap());
-            let b = u64::from_ne_bytes(b.try_into().unwrap());
-            (a ^ b).count_ones()
-        })
-        .sum();
-
-    let rem: u32 = a_chunks
-        .remainder()
-        .iter()
-        .zip(b_chunks.remainder())
-        .map(|(a, b)| (a ^ b).count_ones())
-        .sum();
-
-    main + rem
-}
-
-/// Non-x86 slice implementation using simple byte iteration.
-#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-#[inline(always)]
-fn slice_impl(a: &[u8], b: &[u8]) -> u32 {
-    assert_eq!(a.len(), b.len());
-    a.iter()
-        .zip(b.iter())
-        .map(|(x, y)| (x ^ y).count_ones())
-        .sum()
-}
-
-/// x86 slice threshold: u64 chunking within each block for VPOPCNTDQ/POPCNT.
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[inline(always)]
-fn slice_threshold_impl(a: &[u8], b: &[u8], threshold: u32) -> Option<u32> {
-    assert_eq!(a.len(), b.len());
-    let mut distance: u32 = 0;
-
-    let a_blocks = a.chunks_exact(THRESHOLD_BLOCK_SIZE);
-    let b_blocks = b.chunks_exact(THRESHOLD_BLOCK_SIZE);
-    let a_rem = a_blocks.remainder();
-    let b_rem = b_blocks.remainder();
-
-    for (a_block, b_block) in a_blocks.zip(b_blocks) {
-        let a_arr: &[u8; THRESHOLD_BLOCK_SIZE] = a_block.try_into().unwrap();
-        let b_arr: &[u8; THRESHOLD_BLOCK_SIZE] = b_block.try_into().unwrap();
-
-        let block_dist: u32 = a_arr
-            .chunks_exact(8)
-            .zip(b_arr.chunks_exact(8))
-            .map(|(a_chunk, b_chunk)| {
-                let a_val = u64::from_ne_bytes(a_chunk.try_into().unwrap());
-                let b_val = u64::from_ne_bytes(b_chunk.try_into().unwrap());
-                (a_val ^ b_val).count_ones()
-            })
-            .sum();
-
-        distance += block_dist;
-        if distance > threshold {
-            return None;
-        }
-    }
-
-    let rem_dist: u32 = a_rem
-        .iter()
-        .zip(b_rem.iter())
-        .map(|(x, y)| (x ^ y).count_ones())
-        .sum();
-    distance += rem_dist;
-
-    if distance <= threshold {
-        Some(distance)
-    } else {
-        None
-    }
-}
-
-/// Non-x86 slice threshold: byte iteration for NEON cnt.16b auto-vectorization.
-#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-#[inline(always)]
-fn slice_threshold_impl(a: &[u8], b: &[u8], threshold: u32) -> Option<u32> {
-    assert_eq!(a.len(), b.len());
-    let mut distance: u32 = 0;
-
-    let a_blocks = a.chunks_exact(THRESHOLD_BLOCK_SIZE);
-    let b_blocks = b.chunks_exact(THRESHOLD_BLOCK_SIZE);
-    let a_rem = a_blocks.remainder();
-    let b_rem = b_blocks.remainder();
-
-    for (a_block, b_block) in a_blocks.zip(b_blocks) {
-        let a_arr: &[u8; THRESHOLD_BLOCK_SIZE] = a_block.try_into().unwrap();
-        let b_arr: &[u8; THRESHOLD_BLOCK_SIZE] = b_block.try_into().unwrap();
-
-        let block_dist: u32 = a_arr
-            .iter()
-            .zip(b_arr.iter())
-            .map(|(x, y)| (x ^ y).count_ones())
-            .sum();
-
-        distance += block_dist;
-        if distance > threshold {
-            return None;
-        }
-    }
-
-    let rem_dist: u32 = a_rem
-        .iter()
-        .zip(b_rem.iter())
-        .map(|(x, y)| (x ^ y).count_ones())
-        .sum();
-    distance += rem_dist;
-
-    if distance <= threshold {
-        Some(distance)
-    } else {
-        None
-    }
-}
-
 // ============================================================================
 // Public API
 // ============================================================================
@@ -171,7 +36,8 @@ fn slice_threshold_impl(a: &[u8], b: &[u8], threshold: u32) -> Option<u32> {
 )]
 #[inline]
 pub fn distance(a: &[u8], b: &[u8]) -> u32 {
-    slice_impl(a, b)
+    assert_eq!(a.len(), b.len());
+    crate::distance_impl(a, b)
 }
 
 /// Compute Hamming distance from one source slice to many target slices
@@ -212,9 +78,10 @@ pub fn batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
     assert_eq!(targets.len(), out.len());
 
     // For slices, the data layout (&[&[u8]]) isn't contiguous, so gather
-    // instructions aren't a concern. Calling slice_impl directly is faster.
+    // instructions aren't a concern.
     for (target, dist) in targets.iter().zip(out.iter_mut()) {
-        *dist = slice_impl(source, target);
+        assert_eq!(source.len(), target.len());
+        *dist = crate::distance_impl(source, target);
     }
 }
 
@@ -252,7 +119,8 @@ pub fn batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
 )]
 #[inline]
 pub fn threshold(a: &[u8], b: &[u8], max: u32) -> Option<u32> {
-    slice_threshold_impl(a, b, max)
+    assert_eq!(a.len(), b.len());
+    crate::threshold_impl(a, b, max)
 }
 
 /// Batch Hamming distance with early exit: compare one source against many
@@ -302,7 +170,8 @@ pub fn batch_threshold(source: &[u8], targets: &[&[u8]], max: u32, out: &mut [u3
     assert_eq!(targets.len(), out.len());
     let mut best = u32::MAX;
     for (target, dist) in targets.iter().zip(out.iter_mut()) {
-        match slice_threshold_impl(source, target, max) {
+        assert_eq!(source.len(), target.len());
+        match crate::threshold_impl(source, target, max) {
             Some(d) => {
                 *dist = d;
                 if d < best { best = d; }

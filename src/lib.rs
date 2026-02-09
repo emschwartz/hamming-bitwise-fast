@@ -84,6 +84,83 @@ pub mod array;
 pub mod slice;
 
 // ============================================================================
+// Shared implementation functions
+// ============================================================================
+
+/// Block size for early-exit threshold checks (in bytes).
+/// Each block is checked against the threshold between iterations.
+///
+/// 32 bytes was chosen via benchmarking (see `benches/threshold_block_size.rs`):
+/// it's ~30% faster than 64B on tight thresholds for 1024-bit vectors (the most
+/// common embedding size) while performing within ~10% on loose thresholds.
+pub(crate) const THRESHOLD_BLOCK_SIZE: usize = 32;
+
+/// x86 distance implementation using u64 chunks for auto-vectorization.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[inline(always)]
+pub(crate) fn distance_impl(a: &[u8], b: &[u8]) -> u32 {
+    let a_chunks = a.chunks_exact(8);
+    let b_chunks = b.chunks_exact(8);
+
+    let main: u32 = a_chunks
+        .clone()
+        .zip(b_chunks.clone())
+        .map(|(a, b)| {
+            let a = u64::from_ne_bytes(a.try_into().unwrap());
+            let b = u64::from_ne_bytes(b.try_into().unwrap());
+            (a ^ b).count_ones()
+        })
+        .sum();
+
+    let rem: u32 = a_chunks
+        .remainder()
+        .iter()
+        .zip(b_chunks.remainder())
+        .map(|(a, b)| (a ^ b).count_ones())
+        .sum();
+
+    main + rem
+}
+
+/// Non-x86 distance implementation using simple byte iteration.
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline(always)]
+pub(crate) fn distance_impl(a: &[u8], b: &[u8]) -> u32 {
+    a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x ^ y).count_ones())
+        .sum()
+}
+
+/// Threshold implementation: early-exit when running distance exceeds threshold.
+/// Platform-specific logic is delegated to `distance_impl`.
+#[inline(always)]
+pub(crate) fn threshold_impl(a: &[u8], b: &[u8], threshold: u32) -> Option<u32> {
+    let mut distance: u32 = 0;
+
+    let a_blocks = a.chunks_exact(THRESHOLD_BLOCK_SIZE);
+    let b_blocks = b.chunks_exact(THRESHOLD_BLOCK_SIZE);
+    let a_rem = a_blocks.remainder();
+    let b_rem = b_blocks.remainder();
+
+    for (a_block, b_block) in a_blocks.zip(b_blocks) {
+        distance += distance_impl(a_block, b_block);
+        if distance > threshold {
+            return None;
+        }
+    }
+
+    // Remainder (< THRESHOLD_BLOCK_SIZE bytes) — not worth early-exiting from
+    distance += distance_impl(a_rem, b_rem);
+
+    if distance <= threshold {
+        Some(distance)
+    } else {
+        None
+    }
+}
+
+// ============================================================================
 // Deprecated compatibility shim
 // ============================================================================
 
