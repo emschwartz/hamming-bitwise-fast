@@ -164,18 +164,26 @@ pub fn threshold<const N: usize>(
 /// output. Returns the minimum distance found (or [`u32::MAX`] if all
 /// targets exceeded the threshold).
 ///
-/// Designed for streaming top-k search: use the heap's worst entry as the
-/// threshold — it tightens as better items are found, causing more early
-/// exits over time.
+/// The threshold `max` is fixed for the entire call — it is not tightened
+/// as closer targets are found within the batch. This keeps the inner loop
+/// uniform, which is important for SIMD auto-vectorization.
 ///
-/// ```
+/// For streaming top-k search, the **caller** tightens the threshold across
+/// calls by passing the heap's worst score:
+///
+/// ```no_run
 /// use hamming_bitwise_fast::array;
 ///
-/// // Maintain a heap of top-k items. Use the heap's worst
-/// // score as the threshold — it tightens as better items
-/// // are found, causing more early exits over time.
-/// // let threshold = heap.peek().map_or(u32::MAX, |worst| worst.distance);
-/// // let best = array::batch_threshold(&item, &interests, threshold, &mut out);
+/// # let query: [u8; 128] = [0; 128];
+/// # let batches: Vec<Vec<[u8; 128]>> = vec![];
+/// let mut heap_threshold = u32::MAX; // starts wide open
+/// let mut out = vec![0u32; 100];
+///
+/// for batch in &batches {
+///     let best = array::batch_threshold(&query, batch, heap_threshold, &mut out);
+///     // ... insert qualifying results into a min-heap ...
+///     // heap_threshold = heap.peek().map_or(u32::MAX, |w| w.distance);
+/// }
 /// ```
 ///
 /// # Panics
