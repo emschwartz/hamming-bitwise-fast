@@ -169,7 +169,7 @@ fn slice_threshold_impl(a: &[u8], b: &[u8], threshold: u32) -> Option<u32> {
         "x86+sse4.2+popcnt",
     ))
 )]
-#[inline(always)]
+#[inline]
 pub fn distance(a: &[u8], b: &[u8]) -> u32 {
     slice_impl(a, b)
 }
@@ -207,7 +207,7 @@ pub fn distance(a: &[u8], b: &[u8]) -> u32 {
         "x86+sse4.2+popcnt",
     ))
 )]
-#[inline(always)]
+#[inline]
 pub fn batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
     assert_eq!(targets.len(), out.len());
 
@@ -250,7 +250,7 @@ pub fn batch(source: &[u8], targets: &[&[u8]], out: &mut [u32]) {
         "x86+sse4.2+popcnt",
     ))
 )]
-#[inline(always)]
+#[inline]
 pub fn threshold(a: &[u8], b: &[u8], max: u32) -> Option<u32> {
     slice_threshold_impl(a, b, max)
 }
@@ -297,7 +297,7 @@ pub fn threshold(a: &[u8], b: &[u8], max: u32) -> Option<u32> {
         "x86+sse4.2+popcnt",
     ))
 )]
-#[inline(always)]
+#[inline]
 pub fn batch_threshold(source: &[u8], targets: &[&[u8]], max: u32, out: &mut [u32]) -> u32 {
     assert_eq!(targets.len(), out.len());
     let mut best = u32::MAX;

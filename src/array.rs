@@ -198,7 +198,7 @@ fn array_threshold_impl<const N: usize>(
         "x86+sse4.2+popcnt",
     ))
 )]
-#[inline(always)]
+#[inline]
 pub fn distance<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
     array_impl(a, b)
 }
@@ -233,7 +233,7 @@ pub fn distance<const N: usize>(a: &[u8; N], b: &[u8; N]) -> u32 {
         "x86+sse4.2+popcnt",
     ))
 )]
-#[inline(always)]
+#[inline]
 pub fn batch<const N: usize>(
     source: &[u8; N],
     targets: &[[u8; N]],
@@ -294,7 +294,7 @@ pub fn batch<const N: usize>(
         "x86+sse4.2+popcnt",
     ))
 )]
-#[inline(always)]
+#[inline]
 pub fn threshold<const N: usize>(
     a: &[u8; N],
     b: &[u8; N],
@@ -357,7 +357,7 @@ pub fn threshold<const N: usize>(
         "x86+sse4.2+popcnt",
     ))
 )]
-#[inline(always)]
+#[inline]
 pub fn batch_threshold<const N: usize>(
     source: &[u8; N],
     targets: &[[u8; N]],
