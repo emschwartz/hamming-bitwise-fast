@@ -4,7 +4,7 @@
 //! - simsimd: SIMD-optimized similarity functions
 //! - hamming: Pure Rust implementation
 //! - triple_accel: SIMD-accelerated string metrics
-//! - hamming_rs: x86-only AVX2/SSE implementation
+//! - hamming_rs: AVX2 for ≥1024 bytes on x86, this crate's v1.0 algorithm as fallback
 //!
 //! ## Methodology
 //!
@@ -126,11 +126,11 @@ fn single_benchmarks(c: &mut Criterion) {
                 )
             });
 
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            #[cfg(target_os = "linux")]
             group.bench_function(BenchmarkId::new("hamming_rs", bits), |b| {
                 b.iter_batched_ref(
                     setup,
-                    |(a, b)| hamming_rs::distance_faster(a.as_slice(), b.as_slice()),
+                    |(a, b)| hamming_rs::distance(a.as_slice(), b.as_slice()),
                     l1_batch_size(2 * $size),
                 )
             });
@@ -269,7 +269,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                 },
             );
 
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            #[cfg(target_os = "linux")]
             {
                 let mut out_u64 = vec![0u64; BATCH];
                 group.bench_with_input(
@@ -279,7 +279,7 @@ fn batch_benchmarks(c: &mut Criterion) {
                         bencher.iter(|| {
                             for (i, target) in black_box(&targets_vecs).iter().enumerate() {
                                 out_u64[i] =
-                                    hamming_rs::distance_faster(black_box(&source_vec), target);
+                                    hamming_rs::distance(black_box(&source_vec), target);
                             }
                             black_box(out_u64[0])
                         })

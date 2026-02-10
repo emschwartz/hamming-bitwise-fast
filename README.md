@@ -56,7 +56,7 @@ Compared against other Hamming distance crates:
 [`simsimd`](https://crates.io/crates/simsimd),
 [`hamming`](https://crates.io/crates/hamming),
 [`triple_accel`](https://crates.io/crates/triple_accel),
-[`hamming_rs`](https://crates.io/crates/hamming_rs) (x86 only)
+[`hamming_rs`](https://crates.io/crates/hamming_rs) (Linux/Windows only; AVX2 on x86 for ≥1024 bytes, v0.2.25+ uses this crate's v1.0 algorithm as fallback)
 
 ### Single Comparison
 
@@ -80,7 +80,7 @@ Compared against other Hamming distance crates:
 | triple_accel        | 2.7ns      | 3.3ns      | 5.0ns      |
 | simsimd             | 3.2ns      | 4.1ns      | 6.5ns      |
 | v1 (baseline)       | 4.3ns      | 9.1ns      | 18.1ns     |
-| hamming_rs          | 5.5ns      | 20.0ns     | 16.3ns     |
+| hamming_rs          | 4.3ns      | 8.3ns      | 18.3ns     |
 | hamming             | 48ns       | 96ns       | 28ns       |
 
 ### Batch Comparison (1000 comparisons)
@@ -106,8 +106,8 @@ The batch functions are faster for one-to-many comparisons.
 | **slice::batch** | **3.9µs** | **6.2µs** | **5.8µs** |
 | triple_accel     | 4.0µs     | 4.6µs     | 6.2µs     |
 | simsimd          | 4.8µs     | 5.6µs     | 6.4µs     |
+| hamming_rs       | 5.8µs     | 10.3µs    | 19.0µs    |
 | v1 (baseline)    | 9.7µs     | 10.8µs    | 20.5µs    |
-| hamming_rs       | 16.7µs    | 25.3µs    | 43.1µs    |
 | hamming          | 49.2µs    | 96.6µs    | 31.5µs    |
 
 ### Running benchmarks

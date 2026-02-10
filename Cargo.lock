@@ -241,9 +241,12 @@ dependencies = [
 
 [[package]]
 name = "hamming_rs"
-version = "0.2.22"
+version = "0.2.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "958de7a799a3d5d0b85f6c33b2aecedd774878e5d36587ec706e8277b9bb8fd9"
+checksum = "a64d9f976c4123089f3195abee23fe2e2367c962d07694e213a0f14806bbac81"
+dependencies = [
+ "log",
+]
 
 [[package]]
 name = "itertools"
@@ -275,6 +278,12 @@ name = "libc"
 version = "0.2.168"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5aaeb2981e0606ca11d79718f8bb01164f1d6ed75080182d3abf017e6d244b6d"
+
+[[package]]
+name = "log"
+version = "0.4.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "memchr"
