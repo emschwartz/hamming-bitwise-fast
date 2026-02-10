@@ -1,92 +1,124 @@
-//! A fast, zero-dependency implementation of bitwise Hamming Distance using
-//! a method amenable to auto-vectorization.
+//! Fast bitwise Hamming distance using auto-vectorization with runtime SIMD
+//! detection on x86.
+//!
+//! # Quick Start
+//!
+//! ```
+//! use hamming_bitwise_fast::array;
+//!
+//! let a: [u8; 128] = [0xFF; 128];  // 1024-bit vectors
+//! let b: [u8; 128] = [0x00; 128];
+//!
+//! // Single comparison
+//! let distance = array::distance(&a, &b);  // 1024
+//!
+//! // One source vs many targets
+//! let targets = vec![a, b];
+//! let mut distances = vec![0u32; 2];
+//! array::batch(&a, &targets, &mut distances);
+//! ```
+//!
+//! # Choosing an API
+//!
+//! ## Fixed-size arrays vs slices
+//!
+//! If the vector size is known at compile time (e.g., 1024-bit embeddings are
+//! `[u8; 128]`), use the [`mod@array`] module for the best performance.
+//!
+//! Use [`mod@slice`] when sizes vary at runtime or are not known until program
+//! execution.
+//!
+//! ## Single vs batch
+//!
+//! Use [`array::batch`] or [`slice::batch`] when comparing one source against
+//! many targets. Batch is the fastest approach for one-to-many comparisons.
+//!
+//! # Platform Behavior
+//!
+//! | Platform | Configuration | Behavior |
+//! |----------|---------------|----------|
+//! | x86/x86_64 | Default | Runtime CPU detection via [`multiversion`](https://crates.io/crates/multiversion) (AVX-512/AVX2/SSE4.2) |
+//! | x86/x86_64 | `default-features = false` | Baseline SSE2 only (slow) |
+//! | ARM | Default | NEON is baseline; already optimized |
+//!
+//! On x86, the default build automatically detects and uses the best available
+//! SIMD instructions at runtime:
+//! ```sh
+//! cargo add hamming-bitwise-fast
+//! ```
+//!
+//! For best single-call performance on x86, enable LTO so the compiler can
+//! auto-vectorize across the crate boundary:
+//! ```toml
+//! [profile.release]
+//! lto = true
+//! ```
+//!
+//! For maximum performance, also compile with `-C target-cpu=native`
+//! (eliminates runtime dispatch overhead, at the cost of portability).
+//!
+//! On ARM (including Apple Silicon), the default build is already fast.
+//!
+//! # Feature Flags
+//!
+//! - `multiversion_x86` *(enabled by default)*: Enables runtime CPU detection
+//!   for optimal SIMD on x86 via the [`multiversion`](https://crates.io/crates/multiversion) crate.
+//!   Disable with `default-features = false` if you need zero dependencies or
+//!   are targeting a known CPU with `-C target-cpu=native`.
 
-/// Calculate the bitwise Hamming distance between two byte slices.
-///
-/// While this implementation does not explicitly use SIMD, it uses
-/// a technique that is amenable to auto-vectorization. Its performance
-/// is similar to or faster than more complex implementations that use
-/// explicit SIMD instructions for specific architectures.
-///
-/// # Panics
-///
-/// Panics if the two slices are not the same length.
-#[inline]
-pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
-    assert_eq!(x.len(), y.len());
+#[cfg(test)]
+mod tests;
 
-    // Process 8 bytes at a time using u64
-    let mut distance = x
-        .chunks_exact(8)
-        .zip(y.chunks_exact(8))
-        .map(|(x_chunk, y_chunk)| {
-            // This is safe because we know the chunks are exactly 8 bytes.
-            // Also, we don't care whether the platform uses little-endian or big-endian
-            // byte order. Since we're only XORing values, we just care that the
-            // endianness is the same for both.
-            let x_val = u64::from_ne_bytes(x_chunk.try_into().unwrap());
-            let y_val = u64::from_ne_bytes(y_chunk.try_into().unwrap());
-            (x_val ^ y_val).count_ones()
+pub mod array;
+pub mod slice;
+
+// ============================================================================
+// Shared implementation functions
+// ============================================================================
+
+/// x86 distance implementation using u64 chunks for auto-vectorization.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[inline(always)]
+pub(crate) fn distance_impl(a: &[u8], b: &[u8]) -> u32 {
+    let a_chunks = a.chunks_exact(8);
+    let b_chunks = b.chunks_exact(8);
+
+    let main: u32 = a_chunks
+        .clone()
+        .zip(b_chunks.clone())
+        .map(|(a, b)| {
+            // chunks_exact(8) guarantees exactly 8 bytes per chunk
+            let a = u64::from_ne_bytes(a.try_into().unwrap());
+            let b = u64::from_ne_bytes(b.try_into().unwrap());
+            (a ^ b).count_ones()
         })
-        .sum::<u32>();
+        .sum();
 
-    if x.len() % 8 != 0 {
-        distance += x
-            .chunks_exact(8)
-            .remainder()
-            .iter()
-            .zip(y.chunks_exact(8).remainder())
-            .map(|(x_byte, y_byte)| (x_byte ^ y_byte).count_ones())
-            .sum::<u32>();
-    }
+    let rem: u32 = a_chunks
+        .remainder()
+        .iter()
+        .zip(b_chunks.remainder())
+        .map(|(a, b)| (a ^ b).count_ones())
+        .sum();
 
-    distance
+    main + rem
 }
 
-#[doc(hidden)]
-#[inline]
-pub fn naive_hamming_distance(x: &[u8], y: &[u8]) -> u64 {
-    assert_eq!(x.len(), y.len());
-    let mut distance: u32 = 0;
-    for i in 0..x.len() {
-        distance += (x[i] ^ y[i]).count_ones();
-    }
-    distance as u64
+/// Non-x86 distance implementation using simple byte iteration.
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline(always)]
+pub(crate) fn distance_impl(a: &[u8], b: &[u8]) -> u32 {
+    a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x ^ y).count_ones())
+        .sum()
 }
 
-#[doc(hidden)]
-#[inline]
-pub fn naive_hamming_distance_iter(x: &[u8], y: &[u8]) -> u64 {
-    x.iter()
-        .zip(y)
-        .fold(0, |a, (b, c)| a + (*b ^ *c).count_ones()) as u64
-}
-
-#[test]
-fn all_same_results() {
-    let a ="cd8e98b29187133982909fc8b30e39c7b4dca73128ece9cf22ce64eefcf75a3adb0f129b1b00f63a20209e83cb873df707f1af6a4e3558941556b215461a9cbbbce984233c8b8a51e8bd2d1e7f6500caf59fb497440d15365b81e75d3ca4fc9947d5fcb97a0a7b5e44a6b93ee4f622c9b3157991fecac58f364b23f01fd8621e";
-    let b = "860e297e5ce51d3bee094b69bedaaf4ec5d74aa639fec1980ac8d6debb77ff8a323350ab4217867a2521d1248f878dc71f39ede3ea357ef39065da261f9ab470ce6884a3e8a6727d1a3c2614ab66481683f63c01de17b4f59d11659ab5a4310121fccc69418839ff6783f9ce7d760ac8e3db7824eef28d0f12fc6b3c1ef8d75c";
-    let a = hex::decode(a).unwrap();
-    let b = hex::decode(b).unwrap();
-
-    let expected = naive_hamming_distance(&a, &b);
-
-    // Compare with naive_iter implementation
-    assert_eq!(expected, naive_hamming_distance_iter(&a, &b));
-
-    // Compare with auto vectorized implementation
-    assert_eq!(expected, hamming_bitwise_fast(&a, &b) as u64);
-
-    // Compare with hamming crate
-    assert_eq!(expected, hamming::distance_fast(&a, &b).unwrap());
-
-    // Compare with hamming_rs crate (x86/x86_64 only)
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    assert_eq!(expected, hamming_rs::distance_faster(&a, &b));
-
-    // Compare with simsimd crate
-    assert_eq!(
-        expected,
-        simsimd::BinarySimilarity::hamming(&a, &b).unwrap() as u64
-    );
+/// Convenience alias for [`slice::distance`] that matches the crate name.
+///
+/// For fixed-size arrays, consider [`array::distance`] or
+/// [`array::batch`] for comparing one source against many targets.
+#[inline(always)]
+pub fn hamming_bitwise_fast(x: &[u8], y: &[u8]) -> u32 {
+    slice::distance(x, y)
 }
