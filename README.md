@@ -64,21 +64,23 @@ Compared against other Hamming distance crates:
 
 | Function            | 64 bytes  | 128 bytes | 256 bytes |
 | ------------------- | --------- | --------- | --------- |
-| **array::distance** | **1.3ns** | **2.6ns** | **4.4ns** |
-| **slice::distance** | **1.3ns** | **2.5ns** | **4.4ns** |
-| simsimd             | 5.2ns     | 7.0ns     | 10.9ns    |
-| triple_accel        | 7.6ns     | 12.5ns    | 21.7ns    |
-| hamming             | 8.2ns     | 12.4ns    | 19.1ns    |
+| **array::distance** | **1.3ns** | **2.5ns** | **4.3ns** |
+| **slice::distance** | **1.3ns** | **2.5ns** | **4.3ns** |
+| v1 (baseline)       | 1.6ns     | 3.3ns     | 6.2ns     |
+| simsimd             | 4.6ns     | 6.2ns     | 10.3ns    |
+| triple_accel        | 4.9ns     | 9.7ns     | 19.5ns    |
+| hamming             | 8.1ns     | 12.3ns    | 19.7ns    |
 
-#### x86 (AMD EPYC Zen 4, with `lto = true`)
+#### x86 (AMD EPYC 9845 Zen 5, with `lto = true`)
 
 | Function            | 64 bytes   | 128 bytes  | 256 bytes  |
 | ------------------- | ---------- | ---------- | ---------- |
-| **array::distance** | **1.8ns**  | **2.5ns**  | **3.9ns**  |
+| **array::distance** | **1.8ns**  | **2.5ns**  | **4.0ns**  |
 | **slice::distance** | **2.7ns**  | **3.5ns**  | **5.0ns**  |
-| triple_accel        | 2.8ns      | 3.3ns      | 5.0ns      |
-| simsimd             | 3.2ns      | 4.2ns      | 6.6ns      |
-| hamming_rs          | 5.5ns      | 20.1ns     | 16.4ns     |
+| triple_accel        | 2.7ns      | 3.3ns      | 5.0ns      |
+| simsimd             | 3.2ns      | 4.1ns      | 6.5ns      |
+| v1 (baseline)       | 4.3ns      | 9.1ns      | 18.1ns     |
+| hamming_rs          | 5.5ns      | 20.0ns     | 16.3ns     |
 | hamming             | 48ns       | 96ns       | 28ns       |
 
 ### Batch Comparison (1000 comparisons)
@@ -89,22 +91,24 @@ The batch functions are faster for one-to-many comparisons.
 
 | Function         | 64 bytes  | 128 bytes | 256 bytes |
 | ---------------- | --------- | --------- | --------- |
-| **array::batch** | **1.3µs** | **2.2µs** | **4.7µs** |
-| **slice::batch** | **1.9µs** | **3.0µs** | **5.3µs** |
-| simsimd          | 5.1µs     | 7.3µs     | 11.1µs    |
-| triple_accel     | 7.7µs     | 12.7µs    | 22.0µs    |
-| hamming          | 8.3µs     | 12.8µs    | 19.6µs    |
+| **array::batch** | **1.3µs** | **2.3µs** | **4.6µs** |
+| **slice::batch** | **1.9µs** | **3.1µs** | **5.6µs** |
+| simsimd          | 4.6µs     | 6.6µs     | 10.6µs    |
+| triple_accel     | 7.5µs     | 12.2µs    | 21.9µs    |
+| hamming          | 8.4µs     | 12.5µs    | 19.9µs    |
+| v1 (baseline)    | 5.2µs     | 8.9µs     | 12.6µs    |
 
-#### x86 (AMD EPYC Zen 4)
+#### x86 (AMD EPYC 9845 Zen 5, with `lto = true`)
 
 | Function         | 64 bytes  | 128 bytes | 256 bytes |
 | ---------------- | --------- | --------- | --------- |
-| **array::batch** | **419ns** | **887ns** | **1.7µs** |
-| **slice::batch** | **1.4µs** | **2.4µs** | **3.3µs** |
-| triple_accel     | 4.5µs     | 5.0µs     | 6.4µs     |
-| simsimd          | 4.8µs     | 5.8µs     | 6.6µs     |
-| hamming_rs       | 17.2µs    | 26.0µs    | 43.8µs    |
-| hamming          | 49.3µs    | 96.7µs    | 31.4µs    |
+| **array::batch** | **454ns** | **870ns** | **1.6µs** |
+| **slice::batch** | **3.9µs** | **6.2µs** | **5.8µs** |
+| triple_accel     | 4.0µs     | 4.6µs     | 6.2µs     |
+| simsimd          | 4.8µs     | 5.6µs     | 6.4µs     |
+| v1 (baseline)    | 9.7µs     | 10.8µs    | 20.5µs    |
+| hamming_rs       | 16.7µs    | 25.3µs    | 43.1µs    |
+| hamming          | 49.2µs    | 96.6µs    | 31.5µs    |
 
 ### Running benchmarks
 
@@ -130,18 +134,21 @@ lto = true
 Use full LTO (`true`), not thin (`"thin"`) — thin LTO doesn't give LLVM enough
 cross-module visibility for auto-vectorization.
 
-#### Impact on single-call performance (128 bytes, AMD EPYC Zen 4)
+#### Impact on single-call performance (128 bytes, AMD EPYC 9845 Zen 5)
 
 | Configuration              | `array::distance` | `slice::distance` |
 | -------------------------- | -----------------:| -----------------:|
-| Default (no LTO)           | 7.2ns             | 3.2ns             |
-| **Default + `lto = true`** | **2.5ns (2.9x)**  | **3.5ns**         |
+| Default (no LTO)           | 9.7ns             | 6.6ns             |
+| **Default + `lto = true`** | **2.5ns (3.9x)**  | **3.5ns (1.9x)**  |
 
-Batch functions already amortize per-call overhead, so LTO helps less there.
+**Note on `slice::batch`:** LTO improves single-call and `array::batch` performance
+but currently _hurts_ `slice::batch` throughput on x86 (~2-3x slower). If `slice::batch`
+is your hot path, benchmark with and without LTO for your workload. `array::batch` is
+unaffected and is the fastest option when the size is known at compile time.
 
 ### Runtime SIMD detection
 
-Runtime SIMD detection is enabled by default via the [`multiversion`](https://crates.io/crates/multiversion) crate. Rust targets baseline x86-64 (SSE2 only) by default; the `multiversion_x86` feature compiles multiple code paths and selects the fastest at runtime via CPUID — including AVX-512 VPOPCNTDQ on Intel Ice Lake (2019+) and AMD Zen 4 (2022+) CPUs.
+Runtime SIMD detection is enabled by default via the [`multiversion`](https://crates.io/crates/multiversion) crate. Rust targets baseline x86-64 (SSE2 only) by default; the `multiversion_x86` feature compiles multiple code paths and selects the fastest at runtime via CPUID — including AVX-512 VPOPCNTDQ on Intel Ice Lake (2019+) and AMD Zen 4+ (2022+) CPUs.
 
 ```sh
 cargo add hamming-bitwise-fast
