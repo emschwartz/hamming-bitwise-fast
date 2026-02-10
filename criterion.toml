@@ -1,0 +1,25 @@
+# Criterion benchmark configuration
+# See: https://bheisler.github.io/criterion.rs/book/cargo_criterion/configuring_cargo_criterion.html
+
+[colors]
+# Sample comparison - distinct blue vs gray for easy comparison
+current_sample = { r = 31, g = 119, b = 180 }   # Bright blue
+previous_sample = { r = 127, g = 127, b = 127 } # Neutral gray
+
+# Outlier detection - traffic light intuition
+not_an_outlier = { r = 31, g = 119, b = 180 }   # Same blue as current
+mild_outlier = { r = 255, g = 187, b = 0 }      # Gold/amber warning
+severe_outlier = { r = 214, g = 39, b = 40 }    # Red alert
+
+# Function comparison palette - 8 highly distinct colors
+# Based on colorblind-friendly data visualization palettes
+comparison_colors = [
+    { r = 31, g = 119, b = 180 },   # Blue
+    { r = 255, g = 127, b = 14 },   # Orange
+    { r = 44, g = 160, b = 44 },    # Green
+    { r = 214, g = 39, b = 40 },    # Red
+    { r = 148, g = 103, b = 189 },  # Purple
+    { r = 140, g = 86, b = 75 },    # Brown
+    { r = 227, g = 119, b = 194 },  # Pink
+    { r = 23, g = 190, b = 207 },   # Teal/Cyan
+]
