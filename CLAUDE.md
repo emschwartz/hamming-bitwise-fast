@@ -95,15 +95,23 @@ This pattern enables the compiler to use VPOPCNTDQ on AVX-512 CPUs.
 
 ### Gather Avoidance in Batch Functions
 
-**PERFORMANCE INVARIANT:** `array::batch` uses an `asm!` barrier (`opaque_ptr` in `src/array.rs`) on target references to prevent LLVM from generating slow AVX-512 VPGATHERQQ gather instructions from the contiguous `&[[u8; N]]` layout. This barrier works under LTO and doesn't depend on multiversion internals.
+**PERFORMANCE INVARIANT:** `array::batch` uses an `asm!` barrier (`opaque_ptr` in `src/array.rs`) on target references to prevent LLVM from generating slow AVX-512 VPGATHERQQ gather instructions across iterations of the contiguous `&[[u8; N]]` layout.
+
+The barrier's effect depends on LTO:
+
+- **With LTO + multiversion (the recommended user config):** LLVM inlines fully, sees `N` is a compile-time constant, unrolls the inner loop, and emits no gathers either way. The barrier is a verified no-op — assembly is identical with and without it.
+- **Without LTO + multiversion:** Each multiversion specialization is a separate translation unit. LLVM can't see `N`, falls back to outer-loop vectorization, and emits VPGATHERQQ across iterations (~112 such instructions in the benchmark binary, ~4× runtime slowdown). The barrier is load-bearing here.
+
+The barrier is kept unconditionally as defense for users who don't enable LTO and as insurance against future LLVM versions changing the heuristic under LTO. Cost under LTO is zero (verified).
+
+Why not `black_box`? Both prevent the gather, but `black_box` adds a ~5-cycle store-forwarding penalty per iteration. Under LTO + AVX-512 that's ~7× slower than the asm! barrier (gather_demo: black_box 2.85µs vs asm_barrier 410ns at 64B).
 
 After modifying batch functions, verify:
-1. Inspect x86 AVX-512 assembly for VPGATHERQQ absence
-2. Run `cargo criterion --bench batch_input_type` — array_batch ≈ slice_batch
-3. The gather_demo benchmark group provides a direct A/B comparison
+1. Inspect x86 AVX-512 assembly under `CARGO_PROFILE_BENCH_LTO=false` for absence of VPGATHERQQ in the barriered loop.
+2. Run `cargo criterion --bench batch_input_type` — `gather_demo/asm_barrier_zero_cost` should match `gather_demo/no_blackbox_slow_gather` under LTO, and beat it ~4× under no-LTO.
+3. The `gather_demo` benchmark group provides a direct A/B/C comparison (no barrier, `black_box`, asm barrier).
 
-This does NOT affect `slice::batch` — `&[&[u8]]` is pointer-indirect, so gathers
-aren't possible regardless.
+This does NOT affect `slice::batch` — `&[&[u8]]` is pointer-indirect, so gathers aren't possible regardless.
 
 ### Benchmark Suite
 

@@ -1,45 +1,57 @@
-//! Benchmarks comparing array batch vs slice batch performance.
+//! Benchmarks comparing array batch vs slice batch performance, plus a
+//! dedicated `gather_demo` group that A/B/Cs the three known ways to deal
+//! with AVX-512 cross-iteration gather emission.
 //!
-//! # Background: The AVX-512 Gather Problem (Now Fixed)
+//! # Background: AVX-512 Gather Avoidance
 //!
-//! This benchmark was created to investigate a counterintuitive result where
-//! `hamming_bitwise_slice_batch` was ~2-3x faster than `hamming_bitwise_array_batch`.
+//! When LLVM sees `targets: &[[u8; N]]` (contiguous array of arrays) and has
+//! AVX-512 target features enabled, it can transform the outer loop into a
+//! VPGATHERQQ-based form — reading one element from many targets per
+//! instruction. On Zen 5 each such gather is ~2-10× slower than the
+//! equivalent contiguous VMOVDQU64 + VPOPCNTQ form (separate memory fetches,
+//! cache locality lost, no prefetcher).
 //!
-//! ## Root Cause
+//! ## When LLVM actually emits gathers
 //!
-//! When LLVM sees `targets: &[[u8; N]]` (contiguous array of arrays) with
-//! multiversion enabled, it tries to "optimize" by processing multiple targets
-//! in parallel using AVX-512 gather instructions (VPGATHERQQ).
+//! Whether the bad transformation happens depends on what LLVM can see:
 //!
-//! Gather instructions are notoriously slow:
-//! - Each element requires a separate memory fetch
-//! - Cache line locality is destroyed
-//! - Memory controller can't prefetch effectively
-//! - Throughput is ~10-20x worse than contiguous loads
+//! - **With LTO + multiversion (the recommended user config):** LLVM inlines
+//!   across the multiversion dispatch boundary, sees `N` is a compile-time
+//!   constant, unrolls the inner loop, and produces zero gathers regardless
+//!   of what the source code looks like.
+//! - **Without LTO + multiversion:** each multiversion specialization is a
+//!   separate translation unit. LLVM can't see `N` and resorts to outer-loop
+//!   vectorization via VPGATHERQQ. Measured: 112 such instructions in this
+//!   benchmark binary, ~4× runtime slowdown.
 //!
-//! ## The Fix
+//! So the production asm! barrier in `array::batch` is load-bearing for
+//! no-LTO users and a verified no-op for LTO users (assembly is identical
+//! with and without it under LTO).
 //!
-//! We use an `asm!` barrier (`opaque_ptr`) on the target pointer to prevent LLVM
-//! from seeing stride patterns across loop iterations. Unlike `black_box` (which
-//! stores to stack and reloads, adding ~5 cycle store-forwarding penalty), the
-//! `asm!` barrier with `nomem` keeps the pointer in a register at zero cost.
+//! ## The three variants in `gather_demo`
 //!
-//! ## Assembly After Fix
+//! - `no_blackbox_slow_gather` — no barrier. Hits VPGATHERQQ under no-LTO.
+//! - `blackbox_fast_loads` — `std::hint::black_box`. Prevents the gather,
+//!   but compiles to a stack store + reload (~5-cycle store-forwarding
+//!   penalty per iteration). Under LTO + AVX-512 this is ~7× slower than
+//!   the asm! barrier.
+//! - `asm_barrier_zero_cost` — what the production code uses. The asm!
+//!   barrier with `nomem` keeps the target pointer in a register and
+//!   blocks LLVM's cross-iteration analysis, but at zero per-iteration cost.
 //!
-//! Both array_batch and slice_batch now generate optimal code:
-//! ```asm
-//! vmovdqu64 (%rsi),%zmm0            # Load 64 bytes contiguously
-//! vmovdqu64 0x40(%rsi),%zmm1        # Next 64 bytes
-//! vpopcntq %zmm0,%zmm0              # Hardware popcount
-//! vpopcntq %zmm1,%zmm1
+//! ## Verifying the barrier still works
+//!
+//! Build under no-LTO and disassemble:
+//!
+//! ```sh
+//! CARGO_PROFILE_BENCH_LTO=false cargo bench --bench batch_input_type --no-run
+//! objdump -d target/release/deps/batch_input_type-* | \
+//!   awk '/<.*batch_with_asm_barrier.*>:/{p=1} p; /ret$/{p=0}' | \
+//!   grep -c 'vpgather\|vpscatter'   # should be 0
 //! ```
 //!
-//! ## asm! Barrier (Current Solution)
-//!
-//! We now use an `asm!` barrier with `nomem` instead of `black_box`. This keeps
-//! the pointer in a register (zero store-forwarding penalty) while still blocking
-//! LLVM's stride analysis. The `gather_demo` group benchmarks all three approaches:
-//! no barrier (gathers), `black_box`, and `asm!` barrier.
+//! Same disassembly against `batch_no_black_box` should produce a non-zero
+//! count (currently 112 across the multiversion specializations).
 //!
 //! Run with: cargo bench --features multiversion_x86 --bench batch_input_type -- --quick
 

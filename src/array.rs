@@ -5,31 +5,55 @@
 //! [`slice`](crate::slice) API.
 
 // ============================================================================
-// PERFORMANCE INVARIANT: AVX-512 Gather Avoidance
+// PERFORMANCE INVARIANT: AVX-512 Gather Avoidance (load-bearing without LTO)
 // ============================================================================
 //
-// batch() iterates over &[[u8; N]] — contiguous memory.
-// On x86 AVX-512, LLVM can analyze stride patterns across iterations and emit
-// VPGATHERQQ gather instructions. These are 2-10x SLOWER than contiguous
-// VMOVDQU64 loads because each element requires a separate memory fetch.
+// `batch()` iterates over `&[[u8; N]]` — contiguous memory. With AVX-512
+// target features available, LLVM can transform that loop to use VPGATHERQQ
+// gather instructions, which are 2–10x slower than contiguous VMOVDQU64 loads
+// (each element fetched separately, cache locality destroyed, no prefetcher
+// win). The asm! barrier on `target` below forces LLVM to use the simple
+// load-xor-popcount form instead.
 //
-// Mitigation: make the target pointer opaque to LLVM's stride analysis using
-// an inline asm barrier. On x86, this uses `asm!("", inout(reg) ptr)` with
-// `nomem` — the pointer stays in a register (no store-forwarding penalty) but
-// LLVM's ScalarEvolution can't analyze through the `sideeffect` flag.
-// On non-x86 (ARM etc.), no barrier is needed since gathers don't exist.
+// Whether the barrier matters depends on LTO:
 //
-// This invariant MUST be maintained when modifying batch functions.
-// Verify: inspect x86 AVX-512 assembly for absence of VPGATHERQQ.
-// Proof: benches/batch_input_type.rs gather_demo (A/B comparison).
+//   - With LTO + multiversion (the recommended config): LLVM inlines across
+//     the multiversion dispatch boundary, sees `N` is a compile-time constant,
+//     unrolls the inner loop, and never emits gathers in the first place.
+//     The barrier is a verified no-op here — assembly is identical with and
+//     without it.
+//
+//   - Without LTO + multiversion: each multiversion specialization is a
+//     separate translation unit. LLVM can't see N, falls back to outer-loop
+//     vectorization, and emits VPGATHERQQ across iterations. Measured: 112
+//     such instructions per benchmark binary, ~4x slower than the barriered
+//     form on Zen 5. The barrier is the difference between fast and slow here.
+//
+// The barrier is kept unconditionally as defense for users who don't enable
+// LTO (and as insurance against future LLVM versions changing the heuristic
+// under LTO too). It has no measurable cost under LTO.
+//
+// Why not `black_box`? Both prevent the gather, but `black_box` compiles to
+// a stack store + reload (~5-cycle store-forwarding penalty per iteration).
+// Under LTO + AVX-512 that penalty is ~7x slower than the asm! barrier
+// (gather_demo: black_box = 2.85µs vs asm_barrier = 410ns at 64B).
+//
+// On non-x86 (ARM etc.), no barrier is needed — gather instructions don't
+// exist on those architectures, and `opaque_ptr` is a plain identity.
+//
+// Verify: inspect AVX-512 assembly under CARGO_PROFILE_BENCH_LTO=false for
+//         absence of VPGATHERQQ in the asm-barriered batch loop.
+// Proof:  benches/batch_input_type.rs `gather_demo` (no_barrier / black_box /
+//         asm_barrier A/B/C comparison).
 // ============================================================================
 
 /// Make a pointer opaque to LLVM's stride analysis without store-forwarding.
 ///
 /// On x86, uses `asm!` with `nomem` + `nostack` — the pointer stays in a
-/// register but LLVM treats it as a new, unknown value (preventing gather
-/// vectorization). On non-x86, returns the pointer unchanged since gather
-/// instructions don't exist on those architectures.
+/// register but LLVM treats it as a new, unknown value (preventing the
+/// outer-loop gather vectorization LLVM otherwise picks under no-LTO
+/// multiversion builds). On non-x86, returns the pointer unchanged since
+/// gather instructions don't exist on those architectures.
 ///
 /// # Safety
 ///
@@ -118,12 +142,10 @@ pub fn batch<const N: usize>(source: &[u8; N], targets: &[[u8; N]], out: &mut [u
     assert_eq!(targets.len(), out.len());
 
     for (target, dist) in targets.iter().zip(out.iter_mut()) {
-        // PERFORMANCE INVARIANT: gather avoidance on x86 AVX-512
-        //
-        // Makes the target pointer opaque to prevent LLVM from emitting
-        // VPGATHERQQ instructions from the contiguous &[[u8; N]] layout.
-        // Uses asm! with nomem — pointer stays in register (no store-forwarding
-        // penalty). See module-level comment and benches/batch_input_type.rs.
+        // Gather avoidance for no-LTO multiversion builds. With LTO this line
+        // is a verified no-op; without LTO it prevents LLVM from emitting
+        // VPGATHERQQ across iterations (~4x slowdown). See the module-level
+        // PERFORMANCE INVARIANT block.
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         let target = unsafe { &*opaque_ptr(target as *const [u8; N]) };
         *dist = crate::distance_impl(source, target);

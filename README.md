@@ -75,13 +75,17 @@ Compared against other Hamming distance crates:
 
 | Function            | 64 bytes   | 128 bytes  | 256 bytes  |
 | ------------------- | ---------- | ---------- | ---------- |
-| **array::distance** | **1.8ns**  | **2.5ns**  | **4.0ns**  |
-| **slice::distance** | **2.7ns**  | **3.5ns**  | **5.0ns**  |
-| triple_accel        | 2.7ns      | 3.3ns      | 5.0ns      |
-| simsimd             | 3.2ns      | 4.1ns      | 6.5ns      |
-| v1 (baseline)       | 4.3ns      | 9.1ns      | 18.1ns     |
-| hamming_rs          | 4.3ns      | 8.3ns      | 18.3ns     |
-| hamming             | 48ns       | 96ns       | 28ns       |
+| **array::distance** | **1.8ns**  | **2.0ns**  | **2.8ns**  |
+| **slice::distance** | **2.7ns**  | **2.8ns**  | **3.6ns**  |
+| triple_accel        | 2.7ns      | 3.3ns      | 4.7ns      |
+| simsimd             | 3.2ns      | 3.6ns      | 4.7ns      |
+| v1 (baseline)       | 4.3ns      | 9.2ns      | 18.2ns     |
+| hamming_rs          | 4.3ns      | 8.4ns      | 18.4ns     |
+| hamming             | 48ns       | 96ns       | 28ns¹      |
+
+¹ The `hamming` crate's `distance_fast` hits a vectorized fast path at 256 bytes
+when its input happens to be sufficiently aligned. The 64 B and 128 B numbers
+reflect its slow path. Treat the 256 B cell as a best-case outlier.
 
 ### Batch Comparison (1000 comparisons)
 
@@ -102,13 +106,20 @@ The batch functions are faster for one-to-many comparisons.
 
 | Function         | 64 bytes  | 128 bytes | 256 bytes |
 | ---------------- | --------- | --------- | --------- |
-| **array::batch** | **454ns** | **870ns** | **1.6µs** |
-| **slice::batch** | **3.9µs** | **6.2µs** | **5.8µs** |
-| triple_accel     | 4.0µs     | 4.6µs     | 6.2µs     |
-| simsimd          | 4.8µs     | 5.6µs     | 6.4µs     |
-| hamming_rs       | 5.8µs     | 10.3µs    | 19.0µs    |
-| v1 (baseline)    | 9.7µs     | 10.8µs    | 20.5µs    |
-| hamming          | 49.2µs    | 96.6µs    | 31.5µs    |
+| **array::batch** | **414ns** | **814ns** | **1.7µs** |
+| triple_accel     | 4.0µs     | 4.7µs     | 6.5µs     |
+| simsimd          | 5.1µs     | 5.7µs     | 7.5µs     |
+| **slice::batch** | **5.2µs** | **6.3µs** | **7.7µs** |
+| hamming_rs       | 5.9µs     | 10.3µs    | 19.1µs    |
+| v1 (baseline)    | 9.7µs     | 10.8µs    | 20.6µs    |
+| hamming          | 49µs      | 97µs      | 32µs¹     |
+
+¹ See the `hamming` footnote in the single-comparison table above.
+
+`array::batch` is the fastest option when sizes are known at compile time. For
+runtime-sized inputs, `slice::batch` is competitive with `simsimd` and faster
+than every other competitor, but is 5–13× slower than `array::batch` (see the
+[LTO note](#impact-on-batch-performance) for why).
 
 ### Running benchmarks
 
@@ -138,13 +149,26 @@ cross-module visibility for auto-vectorization.
 
 | Configuration              | `array::distance` | `slice::distance` |
 | -------------------------- | -----------------:| -----------------:|
-| Default (no LTO)           | 9.7ns             | 6.6ns             |
-| **Default + `lto = true`** | **2.5ns (3.9x)**  | **3.5ns (1.9x)**  |
+| Default (no LTO)           | 6.1ns             | 3.4ns             |
+| **Default + `lto = true`** | **2.0ns (3.1x)**  | **2.8ns (1.2x)**  |
 
-**Note on `slice::batch`:** LTO improves single-call and `array::batch` performance
-but currently _hurts_ `slice::batch` throughput on x86 (~2-3x slower). If `slice::batch`
-is your hot path, benchmark with and without LTO for your workload. `array::batch` is
-unaffected and is the fastest option when the size is known at compile time.
+#### Impact on batch performance
+
+LTO is _not_ universally a win for batch workloads. It modestly improves
+`array::batch` (a few hundred ns at most), but currently _hurts_ `slice::batch`
+by 2–3× because LLVM picks a less favorable vectorization shape when it can
+see across the crate boundary.
+
+128-byte vectors, 1000-comparison batch, AMD EPYC 9845 Zen 5:
+
+| Configuration              | `array::batch`   | `slice::batch`     |
+| -------------------------- | ----------------:| ------------------:|
+| Default (no LTO)           | 1.10µs           | **2.3µs**          |
+| **Default + `lto = true`** | **814ns (1.4x)** | 6.3µs (**2.7x slower**) |
+
+If `slice::batch` is your hot path and you can't switch to `array::batch`,
+benchmark with and without LTO for your specific workload. When sizes are
+known at compile time, `array::batch` is always the right answer.
 
 ### Runtime SIMD detection
 
@@ -153,6 +177,20 @@ Runtime SIMD detection is enabled by default via the [`multiversion`](https://cr
 ```sh
 cargo add hamming-bitwise-fast
 ```
+
+#### What the feature buys you
+
+128-byte vectors, `lto = true`, AMD EPYC 9845 Zen 5:
+
+| Configuration                  | `array::distance` | `array::batch` (1000) |
+| ------------------------------ | -----------------:| ---------------------:|
+| `default-features = false` (SSE2 only) | 9.2ns     | 8.9µs                 |
+| **default (`multiversion_x86`)**       | **2.0ns (4.7x)** | **814ns (11x)**       |
+
+The dispatch overhead itself is negligible: when both paths produce the same
+AVX-512 codegen (e.g., compiled with `target-cpu=native`), the multiversion'd
+function and a statically-compiled equivalent are within 1% of each other.
+The win above comes entirely from CPUID picking VPOPCNTDQ over SSE2.
 
 To disable (e.g., for zero dependencies or when using `-C target-cpu=native`):
 
@@ -163,10 +201,11 @@ hamming-bitwise-fast = { version = "1", default-features = false }
 
 ### Compile-time CPU targeting
 
-If you know your target CPU, combine `lto = true` with `RUSTFLAGS` for maximum performance:
+If you know your target CPU, combine `lto = true` with `RUSTFLAGS` for the
+fastest single-call performance:
 
 ```sh
-# Best performance, but binary only runs on identical CPUs
+# Best single-call performance, but binary only runs on identical CPUs
 RUSTFLAGS="-C target-cpu=native" cargo build --release
 
 # Requires AVX-512 (2017+ server CPUs)
@@ -174,6 +213,20 @@ RUSTFLAGS="-C target-cpu=x86-64-v4" cargo build --release
 ```
 
 > Binaries built with compile-time CPU targeting will crash with "illegal instruction" if run on a CPU that doesn't support the required features. For portable deployments, use the default `multiversion_x86` feature instead.
+
+**Caveat for batch workloads:** `target-cpu=native` makes single-call faster
+(~45% on Zen 5) but currently makes the batch APIs _slower_ at larger sizes.
+On a 256-byte vector, 1000-comparison batch:
+
+| Configuration                  | `array::batch` | `slice::batch` |
+| ------------------------------ | --------------:| --------------:|
+| default features + `lto = true` (multiversion) | **1.7µs**  | **7.7µs**  |
+| `target-cpu=native` + `lto = true`             | 1.9µs (+7%) | 11.6µs (+50%) |
+
+LLVM picks a different (worse) vectorization shape for batch loops when
+compiled with native than when going through the multiversion dispatch
+boundary. If batch throughput matters, prefer the default features over
+`target-cpu=native`, or benchmark both for your specific workload.
 
 ## License
 

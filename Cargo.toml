@@ -49,6 +49,10 @@ harness = false
 name = "array_vs_slice"
 harness = false
 
+[[bench]]
+name = "dispatch"
+harness = false
+
 # Additional benchmarks in benches/ are for development only and not declared
 # here. To run one, temporarily add a [[bench]] entry with harness = false:
 #   [[bench]]
