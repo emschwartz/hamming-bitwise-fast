@@ -16,6 +16,7 @@ exclude = [
     "results-*/",
     "docs/",
     "scripts/",
+    "examples/",
     ".DS_Store",
     "CLAUDE.md",
     "criterion.toml",
