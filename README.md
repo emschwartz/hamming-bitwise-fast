@@ -64,14 +64,14 @@ Compared against other Hamming distance crates:
 
 | Function            | 64 bytes  | 128 bytes | 256 bytes |
 | ------------------- | --------- | --------- | --------- |
-| **array::distance** | **1.3ns** | **2.5ns** | **4.3ns** |
-| **slice::distance** | **1.3ns** | **2.5ns** | **4.3ns** |
-| v1 (baseline)       | 1.6ns     | 3.3ns     | 6.2ns     |
-| simsimd             | 4.6ns     | 6.2ns     | 10.3ns    |
-| triple_accel        | 4.9ns     | 9.7ns     | 19.5ns    |
-| hamming             | 8.1ns     | 12.3ns    | 19.7ns    |
+| **array::distance** | **1.2ns** | **2.4ns** | **4.3ns** |
+| **slice::distance** | **1.2ns** | **2.4ns** | **4.2ns** |
+| v1 (baseline)       | 1.5ns     | 3.3ns     | 6.1ns     |
+| hamming             | 3.9ns     | 5.4ns     | 19.3ns    |
+| simsimd             | 4.3ns     | 6.2ns     | 10.1ns    |
+| triple_accel        | 4.8ns     | 9.7ns     | 19.4ns    |
 
-#### x86 (AMD EPYC 9845 Zen 5, with `lto = true`)
+#### x86 (AMD EPYC 9845 Zen 5, AVX-512 VPOPCNTDQ, with `lto = true`)
 
 | Function            | 64 bytes   | 128 bytes  | 256 bytes  |
 | ------------------- | ---------- | ---------- | ---------- |
@@ -87,6 +87,26 @@ Compared against other Hamming distance crates:
 when its input happens to be sufficiently aligned. The 64 B and 128 B numbers
 reflect its slow path. Treat the 256 B cell as a best-case outlier.
 
+#### x86 (AMD EPYC 7713 Zen 3, AVX2 only, with `lto = true`)
+
+For users on Skylake-class Intel or pre-Genoa AMD CPUs that don't have
+AVX-512 VPOPCNTDQ. Multiversion picks the AVX2+POPCNT path.
+
+| Function            | 64 bytes   | 128 bytes  | 256 bytes  |
+| ------------------- | ---------- | ---------- | ---------- |
+| **array::distance** | **4.3ns**  | **6.8ns**  | **11.5ns** |
+| triple_accel        | 5.4ns      | 6.5ns²     | 10.7ns²    |
+| hamming_rs          | 5.7ns      | 11.1ns     | 24.8ns     |
+| v1 (baseline)       | 5.9ns      | 12.7ns     | 23.2ns     |
+| **slice::distance** | **6.6ns**  | **9.8ns**  | **13.1ns** |
+| simsimd             | 10.2ns     | 14.7ns     | 26.0ns     |
+| hamming             | 63ns       | 123ns      | 46ns¹      |
+
+² On Zen 3, `triple_accel` is competitive with `array::distance` at 128–256 B
+single-call (within 5–8%). For one-shot AVX2-only workloads at these sizes,
+either is reasonable. `array::batch` (below) still dominates by 1.5–2.5×
+for the one-to-many case.
+
 ### Batch Comparison (1000 comparisons)
 
 The batch functions are faster for one-to-many comparisons.
@@ -95,14 +115,14 @@ The batch functions are faster for one-to-many comparisons.
 
 | Function         | 64 bytes  | 128 bytes | 256 bytes |
 | ---------------- | --------- | --------- | --------- |
-| **array::batch** | **1.3µs** | **2.3µs** | **4.6µs** |
-| **slice::batch** | **1.9µs** | **3.1µs** | **5.6µs** |
-| simsimd          | 4.6µs     | 6.6µs     | 10.6µs    |
-| triple_accel     | 7.5µs     | 12.2µs    | 21.9µs    |
-| hamming          | 8.4µs     | 12.5µs    | 19.9µs    |
-| v1 (baseline)    | 5.2µs     | 8.9µs     | 12.6µs    |
+| **array::batch** | **1.3µs** | **2.2µs** | **4.6µs** |
+| **slice::batch** | **1.9µs** | **3.0µs** | **5.4µs** |
+| hamming          | 4.1µs     | 5.6µs     | 19.5µs    |
+| simsimd          | 4.6µs     | 6.6µs     | 10.4µs    |
+| triple_accel     | 7.2µs     | 12.0µs    | 21.6µs    |
+| v1 (baseline)    | 5.1µs     | 9.4µs     | 12.3µs    |
 
-#### x86 (AMD EPYC 9845 Zen 5, with `lto = true`)
+#### x86 (AMD EPYC 9845 Zen 5, AVX-512 VPOPCNTDQ, with `lto = true`)
 
 | Function         | 64 bytes  | 128 bytes | 256 bytes |
 | ---------------- | --------- | --------- | --------- |
@@ -116,6 +136,18 @@ The batch functions are faster for one-to-many comparisons.
 
 ¹ See the `hamming` footnote in the single-comparison table above.
 
+#### x86 (AMD EPYC 7713 Zen 3, AVX2 only, with `lto = true`)
+
+| Function         | 64 bytes  | 128 bytes | 256 bytes |
+| ---------------- | --------- | --------- | --------- |
+| **array::batch** | **2.7µs** | **5.1µs** | **10.1µs**|
+| **slice::batch** | **4.4µs** | **6.9µs** | **12.1µs**|
+| triple_accel     | 7.4µs     | 9.2µs     | 11.9µs    |
+| simsimd          | 9.4µs     | 13.8µs    | 23.0µs    |
+| hamming_rs       | 9.9µs     | 14.2µs    | 30.7µs    |
+| v1 (baseline)    | 13.9µs    | 19.1µs    | 34.7µs    |
+| hamming          | 67µs      | 143µs     | 51µs¹     |
+
 `array::batch` is the fastest option when sizes are known at compile time. For
 runtime-sized inputs, `slice::batch` is competitive with `simsimd` and faster
 than every other competitor, but is 5–13× slower than `array::batch` (see the
@@ -127,6 +159,12 @@ than every other competitor, but is 5–13× slower than `array::batch` (see the
 # Run competitor comparison
 cargo bench --bench competitors
 ```
+
+> **Methodology note:** x86 numbers were measured on dedicated-CPU cloud
+> instances; ARM numbers on a quiescent Apple M2 Max. Cloud-VM placement
+> variance can shift sub-ns single-call timings by 5–15% between physical
+> hosts even at the same SKU. Treat the relative ranking as reliable and
+> the absolute numbers as a representative sample of a well-behaved host.
 
 ## Performance on x86
 
